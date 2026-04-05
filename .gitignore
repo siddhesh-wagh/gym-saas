@@ -1,0 +1,15 @@
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+
+# VS Code settings
+.vscode/
+
+# Mac/Linux junk files
+.DS_Store
