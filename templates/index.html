@@ -1,74 +1,57 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Gym SaaS</title>
+    <title>Gym SaaS Dashboard</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
+
 <body>
 
-<h1>Gym Dashboard</h1>
+<div class="container">
 
-<h2>Add Member</h2>
+    <h1>🏋️ Gym Dashboard</h1>
 
-<input type="text" id="name" placeholder="Name"><br><br>
-<input type="text" id="phone" placeholder="Phone"><br><br>
+    <!-- ADD MEMBER -->
+    <div class="card">
+        <h2>Add Member</h2>
 
-<button onclick="addMember()">Add Member</button>
+        <input type="text" id="name" placeholder="Name">
+        <input type="text" id="phone" placeholder="Phone">
 
-<p id="result"></p>
+        <button onclick="addMember()">Add Member</button>
 
-<hr>
+        <p id="result"></p>
+    </div>
 
-<h2>All Members</h2>
-<button onclick="loadMembers()">Load Members</button>
+    <!-- CSV UPLOAD -->
+    <div class="card">
+        <h2>Upload CSV</h2>
 
-<ul id="membersList"></ul>
+        <input type="file" id="csvFile">
+        <button onclick="uploadCSV()">Upload</button>
 
-<!-- ✅ ALL JS GOES HERE -->
-<script>
+        <p id="csvResult"></p>
+    </div>
 
-function addMember() {
-    fetch("/add-member", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            name: document.getElementById("name").value,
-            phone: document.getElementById("phone").value,
-            gym_id: 1,
-            plan_id: 1
-        })
-    })
-    .then(res => res.json())
-    .then(data => {
-        document.getElementById("result").innerText =
-            "✅ " + data.message + " | Expiry: " + data.expiry_date;
+    <!-- EXPIRY ALERTS -->
+    <div class="card">
+        <h2>⚠ Expiring Members</h2>
+        <ul id="alertsList"></ul>
+    </div>
 
-        loadMembers();  // 🔥 auto refresh list
-    });
-}
+    <!-- MEMBERS LIST -->
+    <div class="card">
+        <h2>All Members</h2>
+        <button onclick="loadMembers()">Refresh</button>
+        <ul id="membersList"></ul>
+    </div>
 
+</div>
 
-function loadMembers() {
-    fetch("/members/1")
-    .then(res => res.json())
-    .then(data => {
-        let list = document.getElementById("membersList");
-        list.innerHTML = "";
-
-        data.forEach(member => {
-            let li = document.createElement("li");
-            li.innerText =
-                member.name + " | " +
-                member.phone + " | Expiry: " +
-                member.expiry_date;
-
-            list.appendChild(li);
-        });
-    });
-}
-
-</script>
+<!-- JS -->
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
 
 </body>
 </html>

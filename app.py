@@ -186,7 +186,7 @@ def get_expiring_members(gym_id):
 
 
 # -----------------------
-# CSV Upload (Bulk Insert)
+# CSV Upload (Bulk Insert with Duplicate Check)
 # -----------------------
 @app.route("/upload-csv", methods=["POST"])
 def upload_csv():
@@ -194,43 +194,73 @@ def upload_csv():
     gym_id = request.form.get("gym_id")
     plan_id = request.form.get("plan_id")
 
+    # Validate input
     if not file:
         return jsonify({"error": "No file uploaded"}), 400
 
+    if not gym_id or not plan_id:
+        return jsonify({"error": "gym_id and plan_id required"}), 400
+
+    # Convert to int
     gym_id = int(gym_id)
     plan_id = int(plan_id)
 
+    # Get plan
     plan = db.session.get(Plan, plan_id)
-
     if not plan:
         return jsonify({"error": "Invalid plan_id"}), 400
 
+    # Dates
     join_date = datetime.today().date()
     expiry_date = join_date + timedelta(days=plan.duration_days)
 
+    # Read CSV
     csv_data = file.read().decode("utf-8").splitlines()
     reader = csv.DictReader(csv_data)
 
-    members_list = []
+    inserted = 0
+    skipped = 0
 
     for row in reader:
+        name = row.get("name")
+        phone = row.get("phone")
+
+        # Skip empty rows
+        if not name or not phone:
+            skipped += 1
+            continue
+
+        # 🔥 Check duplicate phone inside same gym
+        existing_member = Member.query.filter_by(
+            phone=phone,
+            gym_id=gym_id
+        ).first()
+
+        if existing_member:
+            skipped += 1
+            continue
+
+        # Create member
         member = Member(
-            name=row.get("name"),
-            phone=row.get("phone"),
+            name=name,
+            phone=phone,
             join_date=join_date,
             expiry_date=expiry_date,
             gym_id=gym_id,
             plan_id=plan_id
         )
-        members_list.append(member)
 
-    # 🚀 FAST insert
-    db.session.bulk_save_objects(members_list)
+        db.session.add(member)
+        inserted += 1
+
     db.session.commit()
 
     return jsonify({
-        "message": f"{len(members_list)} members uploaded successfully"
+        "message": "CSV upload completed",
+        "inserted": inserted,
+        "skipped_duplicates": skipped
     })
+
 
 
 # -----------------------
