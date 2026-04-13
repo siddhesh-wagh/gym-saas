@@ -82,6 +82,33 @@ def add_member():
         "message": "Member added successfully",
         "expiry_date": str(expiry_date)
     })
+@app.route("/signup", methods=["POST"])
+def signup():
+    data = request.json
+
+    name = data.get("name")
+    email = data.get("email")
+    password = data.get("password")
+
+    # Check if gym already exists
+    existing_gym = Gym.query.filter_by(email=email).first()
+
+    if existing_gym:
+        return jsonify({"error": "Gym already exists"}), 400
+
+    new_gym = Gym(
+        name=name,
+        email=email,
+        password=password
+    )
+
+    db.session.add(new_gym)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Gym created successfully",
+        "gym_id": new_gym.id
+    })
 
 
 # -----------------------
