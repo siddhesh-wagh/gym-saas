@@ -48,6 +48,7 @@ def home():
     return jsonify({"message": "Gym SaaS API running 🚀"})
 
 
+# add members to gym
 @app.route("/add-member", methods=["POST"])
 def add_member():
     data = request.json
@@ -82,6 +83,8 @@ def add_member():
         "message": "Member added successfully",
         "expiry_date": str(expiry_date)
     })
+
+# singup
 @app.route("/signup", methods=["POST"])
 def signup():
     data = request.json
@@ -108,6 +111,24 @@ def signup():
     return jsonify({
         "message": "Gym created successfully",
         "gym_id": new_gym.id
+    })
+
+# login
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.json
+
+    email = data.get("email")
+    password = data.get("password")
+
+    gym = Gym.query.filter_by(email=email, password=password).first()
+
+    if not gym:
+        return jsonify({"error": "Invalid email or password"}), 401
+
+    return jsonify({
+        "message": "Login successful",
+        "gym_id": gym.id
     })
 
 
