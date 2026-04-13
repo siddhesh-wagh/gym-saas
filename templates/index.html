@@ -16,9 +16,18 @@
 
 <p id="result"></p>
 
+<hr>
+
+<h2>All Members</h2>
+<button onclick="loadMembers()">Load Members</button>
+
+<ul id="membersList"></ul>
+
+<!-- ✅ ALL JS GOES HERE -->
 <script>
+
 function addMember() {
-    fetch("http://127.0.0.1:5000/add-member", {
+    fetch("/add-member", {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
@@ -32,9 +41,33 @@ function addMember() {
     })
     .then(res => res.json())
     .then(data => {
-        document.getElementById("result").innerText = data.message;
+        document.getElementById("result").innerText =
+            "✅ " + data.message + " | Expiry: " + data.expiry_date;
+
+        loadMembers();  // 🔥 auto refresh list
     });
 }
+
+
+function loadMembers() {
+    fetch("/members/1")
+    .then(res => res.json())
+    .then(data => {
+        let list = document.getElementById("membersList");
+        list.innerHTML = "";
+
+        data.forEach(member => {
+            let li = document.createElement("li");
+            li.innerText =
+                member.name + " | " +
+                member.phone + " | Expiry: " +
+                member.expiry_date;
+
+            list.appendChild(li);
+        });
+    });
+}
+
 </script>
 
 </body>

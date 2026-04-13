@@ -1,14 +1,13 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
-from flask import render_template
-
 import csv
-
 
 app = Flask(__name__)
 
-# PostgreSQL connection
+# -----------------------
+# Database Config
+# -----------------------
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://gym_admin:gym123@localhost:5432/gym_saas'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -42,32 +41,35 @@ class Member(db.Model):
     gym_id = db.Column(db.Integer, db.ForeignKey('gym.id'))
     plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'))
 
-
 # -----------------------
 # Routes
 # -----------------------
 
+# Home (Frontend Page)
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
-
-# add members to gym
+# -----------------------
+# Add Member API
+# -----------------------
 @app.route("/add-member", methods=["POST"])
 def add_member():
-    data = request.form  # ✅ FIXED
+    data = request.get_json()
 
     name = data.get("name")
     phone = data.get("phone")
-    plan_id = data.get("plan_id")
-    gym_id = data.get("gym_id")
+    plan_id = int(data.get("plan_id"))
+    gym_id = int(data.get("gym_id"))
 
-    plan = Plan.query.get(plan_id)
+    # Get plan
+    plan = db.session.get(Plan, plan_id)  # ✅ modern method
 
     if not plan:
-        return "Invalid plan_id"
+        return jsonify({"error": "Invalid plan_id"}), 400
 
+    # Date logic
     join_date = datetime.today().date()
     expiry_date = join_date + timedelta(days=plan.duration_days)
 
@@ -83,29 +85,30 @@ def add_member():
     db.session.add(new_member)
     db.session.commit()
 
-    return f"Member added! Expiry: {expiry_date}"
+    return jsonify({
+        "message": "Member added successfully",
+        "expiry_date": str(expiry_date)
+    })
 
 
-# singup
+# -----------------------
+# Signup API
+# -----------------------
 @app.route("/signup", methods=["POST"])
 def signup():
-    data = request.json
+    data = request.get_json()
 
     name = data.get("name")
     email = data.get("email")
     password = data.get("password")
 
-    # Check if gym already exists
-    existing_gym = Gym.query.filter_by(email=email).first()
+    # Check existing
+    existing = Gym.query.filter_by(email=email).first()
 
-    if existing_gym:
+    if existing:
         return jsonify({"error": "Gym already exists"}), 400
 
-    new_gym = Gym(
-        name=name,
-        email=email,
-        password=password
-    )
+    new_gym = Gym(name=name, email=email, password=password)
 
     db.session.add(new_gym)
     db.session.commit()
@@ -115,10 +118,13 @@ def signup():
         "gym_id": new_gym.id
     })
 
-# login
+
+# -----------------------
+# Login API
+# -----------------------
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.json
+    data = request.get_json()
 
     email = data.get("email")
     password = data.get("password")
@@ -126,20 +132,22 @@ def login():
     gym = Gym.query.filter_by(email=email, password=password).first()
 
     if not gym:
-        return jsonify({"error": "Invalid email or password"}), 401
+        return jsonify({"error": "Invalid credentials"}), 401
 
     return jsonify({
         "message": "Login successful",
         "gym_id": gym.id
     })
 
-# all members
+
+# -----------------------
+# Get All Members
+# -----------------------
 @app.route("/members/<int:gym_id>", methods=["GET"])
 def get_members(gym_id):
     members = Member.query.filter_by(gym_id=gym_id).all()
 
     result = []
-
     for m in members:
         result.append({
             "id": m.id,
@@ -151,24 +159,24 @@ def get_members(gym_id):
 
     return jsonify(result)
 
-# expiring
+
+# -----------------------
+# Expiring Members (Next 3 Days)
+# -----------------------
 @app.route("/expiring-members/<int:gym_id>", methods=["GET"])
 def get_expiring_members(gym_id):
     today = datetime.today().date()
     next_3_days = today + timedelta(days=3)
 
     members = Member.query.filter(
-    Member.gym_id == gym_id,
-    Member.expiry_date >= today,
-    Member.expiry_date <= next_3_days
-).all()
-
+        Member.gym_id == gym_id,
+        Member.expiry_date >= today,
+        Member.expiry_date <= next_3_days
+    ).all()
 
     result = []
-
     for m in members:
         result.append({
-            "id": m.id,
             "name": m.name,
             "phone": m.phone,
             "expiry_date": str(m.expiry_date)
@@ -176,55 +184,47 @@ def get_expiring_members(gym_id):
 
     return jsonify(result)
 
-# CSV upload (bulk insert optimized)
+
+# -----------------------
+# CSV Upload (Bulk Insert)
+# -----------------------
 @app.route("/upload-csv", methods=["POST"])
 def upload_csv():
-    # Get file + form data
     file = request.files.get("file")
     gym_id = request.form.get("gym_id")
     plan_id = request.form.get("plan_id")
 
-    # Convert to int (IMPORTANT)
-    gym_id = int(gym_id)
-    plan_id = int(plan_id)
-
-    # Check file
     if not file:
         return jsonify({"error": "No file uploaded"}), 400
 
-    # Get plan from DB
-    plan = Plan.query.get(plan_id)
+    gym_id = int(gym_id)
+    plan_id = int(plan_id)
+
+    plan = db.session.get(Plan, plan_id)
 
     if not plan:
         return jsonify({"error": "Invalid plan_id"}), 400
 
-    # Calculate dates
     join_date = datetime.today().date()
     expiry_date = join_date + timedelta(days=plan.duration_days)
 
-    # Read CSV file
     csv_data = file.read().decode("utf-8").splitlines()
     reader = csv.DictReader(csv_data)
 
-    # Prepare bulk list
     members_list = []
 
     for row in reader:
-        name = row.get("name")
-        phone = row.get("phone")
-
         member = Member(
-            name=name,
-            phone=phone,
+            name=row.get("name"),
+            phone=row.get("phone"),
             join_date=join_date,
             expiry_date=expiry_date,
             gym_id=gym_id,
             plan_id=plan_id
         )
-
         members_list.append(member)
 
-    # Bulk insert (FAST 🚀)
+    # 🚀 FAST insert
     db.session.bulk_save_objects(members_list)
     db.session.commit()
 
@@ -232,7 +232,10 @@ def upload_csv():
         "message": f"{len(members_list)} members uploaded successfully"
     })
 
-# expiry alert
+
+# -----------------------
+# Expiry Alerts API
+# -----------------------
 @app.route("/expiry-alerts/<int:gym_id>", methods=["GET"])
 def expiry_alerts(gym_id):
     today = datetime.today().date()
@@ -245,7 +248,6 @@ def expiry_alerts(gym_id):
     ).all()
 
     result = []
-
     for m in members:
         result.append({
             "name": m.name,
@@ -259,10 +261,12 @@ def expiry_alerts(gym_id):
 # -----------------------
 # Create Tables
 # -----------------------
-
 with app.app_context():
     db.create_all()
 
 
+# -----------------------
+# Run App
+# -----------------------
 if __name__ == "__main__":
     app.run(debug=True)
