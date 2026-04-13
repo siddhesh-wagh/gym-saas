@@ -1,7 +1,6 @@
-POST http://127.0.0.1:5000/login
-Content-Type: application/json
+POST http://127.0.0.1:5000/upload-csv
+Content-Type: multipart/form-data
 
-{
-  "email": "fitzone@test.com",
-  "password": "1234"
-}
+file=@members.csv
+gym_id=1
+plan_id=1

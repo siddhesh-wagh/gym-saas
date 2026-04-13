@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gym SaaS</title>
+</head>
+<body>
+
+<h1>Gym Dashboard</h1>
+
+<h2>Add Member</h2>
+
+<input type="text" id="name" placeholder="Name"><br><br>
+<input type="text" id="phone" placeholder="Phone"><br><br>
+
+<button onclick="addMember()">Add Member</button>
+
+<p id="result"></p>
+
+<script>
+function addMember() {
+    fetch("http://127.0.0.1:5000/add-member", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            name: document.getElementById("name").value,
+            phone: document.getElementById("phone").value,
+            gym_id: 1,
+            plan_id: 1
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("result").innerText = data.message;
+    });
+}
+</script>
+
+</body>
+</html>
