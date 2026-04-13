@@ -131,6 +131,48 @@ def login():
         "gym_id": gym.id
     })
 
+# all members
+@app.route("/members/<int:gym_id>", methods=["GET"])
+def get_members(gym_id):
+    members = Member.query.filter_by(gym_id=gym_id).all()
+
+    result = []
+
+    for m in members:
+        result.append({
+            "id": m.id,
+            "name": m.name,
+            "phone": m.phone,
+            "join_date": str(m.join_date),
+            "expiry_date": str(m.expiry_date)
+        })
+
+    return jsonify(result)
+
+# expiring
+@app.route("/expiring-members/<int:gym_id>", methods=["GET"])
+def get_expiring_members(gym_id):
+    today = datetime.today().date()
+    next_3_days = today + timedelta(days=3)
+
+    members = Member.query.filter(
+        Member.gym_id == gym_id,
+        Member.expiry_date <= next_3_days
+    ).all()
+
+    result = []
+
+    for m in members:
+        result.append({
+            "id": m.id,
+            "name": m.name,
+            "phone": m.phone,
+            "expiry_date": str(m.expiry_date)
+        })
+
+    return jsonify(result)
+
+
 
 # -----------------------
 # Create Tables
