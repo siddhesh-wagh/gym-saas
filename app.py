@@ -1,6 +1,6 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
-from datetime import date
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -45,7 +45,43 @@ class Member(db.Model):
 
 @app.route("/")
 def home():
-    return jsonify({"message": "Tables ready 🚀"})
+    return jsonify({"message": "Gym SaaS API running 🚀"})
+
+
+@app.route("/add-member", methods=["POST"])
+def add_member():
+    data = request.json
+
+    name = data.get("name")
+    phone = data.get("phone")
+    plan_id = data.get("plan_id")
+    gym_id = data.get("gym_id")
+
+    # Get plan from DB
+    plan = Plan.query.get(plan_id)
+
+    if not plan:
+        return jsonify({"error": "Invalid plan_id"}), 400
+
+    join_date = datetime.today().date()
+    expiry_date = join_date + timedelta(days=plan.duration_days)
+
+    new_member = Member(
+        name=name,
+        phone=phone,
+        join_date=join_date,
+        expiry_date=expiry_date,
+        gym_id=gym_id,
+        plan_id=plan_id
+    )
+
+    db.session.add(new_member)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Member added successfully",
+        "expiry_date": str(expiry_date)
+    })
 
 
 # -----------------------

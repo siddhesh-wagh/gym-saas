@@ -1,0 +1,17 @@
+POST http://127.0.0.1:5000/add-member
+Content-Type: application/json
+
+{
+  "name": "Rahul",
+  "phone": "9999999999",
+  "plan_id": 1,
+  "gym_id": 1
+}
+POST http://127.0.0.1:5000/signup
+Content-Type: application/json
+
+{
+  "name": "FitZone",
+  "email": "fitzone@test.com",
+  "password": "1234"
+}
