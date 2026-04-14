@@ -15,34 +15,27 @@
       <h1>🏋️ Gym Dashboard</h1>
 
       <!-- ADD MEMBER -->
-      <div class="card">
-        <h2>Add Member</h2>
+      <h2>Add Member</h2>
 
-        <input type="text" id="name" placeholder="Name" />
-        <input type="text" id="phone" placeholder="Phone" />
-        <input type="email" id="email" placeholder="Email" />
+      <form id="memberForm" enctype="multipart/form-data">
+        <input type="text" name="name" placeholder="Name" /><br /><br />
+        <input type="text" name="phone" placeholder="Phone" /><br /><br />
+        <input type="email" name="email" placeholder="Email" /><br /><br />
+        <input type="number" name="age" placeholder="Age" /><br /><br />
 
-        <input type="number" id="age" placeholder="Age" />
-
-        <select id="gender">
-          <option value="">Select Gender</option>
+        <select name="gender">
           <option>Male</option>
-          <option>Female</option>
-        </select>
+          <option>Female</option></select
+        ><br /><br />
 
-        <input type="text" id="address" placeholder="Address" />
+        <input type="text" name="address" placeholder="Address" /><br /><br />
 
-        <select id="plan_id">
-          <option value="1">1 Month</option>
-          <option value="2">3 Months</option>
-          <option value="3">6 Months</option>
-          <option value="4">12 Months</option>
-        </select>
+        <input type="file" name="photo" /><br /><br />
 
-        <button onclick="addMember()">Add Member</button>
+        <button type="submit">Add Member</button>
+      </form>
 
-        <p id="result"></p>
-      </div>
+      <p id="result"></p>
 
       <!-- CSV UPLOAD -->
       <div class="card">
@@ -64,7 +57,21 @@
       <div class="card">
         <h2>All Members</h2>
         <button onclick="loadMembers()">Refresh</button>
-        <ul id="membersList"></ul>
+
+        <table border="1" width="100%" id="membersTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Age</th>
+              <th>Gender</th>
+              <th>Expiry</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
       </div>
     </div>
 

@@ -2,24 +2,19 @@ const GYM_ID = 1;
 const PLAN_ID = 1;
 
 // --------------------
-// ADD MEMBER
+// ADD MEMBER (WITH PHOTO)
 // --------------------
-function addMember() {
+document.getElementById("memberForm").addEventListener("submit", function(e) {
+    e.preventDefault();
+
+    let formData = new FormData(this);
+
+    formData.append("gym_id", GYM_ID);
+    formData.append("plan_id", PLAN_ID);
+
     fetch("/add-member", {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            name: document.getElementById("name").value,
-            phone: document.getElementById("phone").value,
-            email: document.getElementById("email").value,
-            age: document.getElementById("age").value,
-            gender: document.getElementById("gender").value,
-            address: document.getElementById("address").value,
-            plan_id: document.getElementById("plan_id").value,
-            gym_id: 1
-        })
+        body: formData
     })
     .then(res => res.json())
     .then(data => {
@@ -30,10 +25,12 @@ function addMember() {
                 "✅ ID: " + data.member_id +
                 " | Expiry: " + data.expiry_date;
 
+            // refresh data
             loadMembers();
+            loadAlerts();
         }
     });
-}
+});
 
 
 // --------------------
@@ -43,20 +40,30 @@ function loadMembers() {
     fetch(`/members/${GYM_ID}`)
     .then(res => res.json())
     .then(data => {
-        let list = document.getElementById("membersList");
-        list.innerHTML = "";
+        let table = document.querySelector("#membersTable tbody");
+        table.innerHTML = "";
 
         data.forEach(member => {
-            let li = document.createElement("li");
-            li.innerText =
-                member.name + " | " +
-                member.phone + " | Expiry: " +
-                member.expiry_date;
+            let row = `
+                <tr>
+                    <td>${member.unique_id}</td>
+                    <td>
+                        ${member.photo ? `<img src="${member.photo}" width="40">` : ""}
+                        ${member.name}
+                    </td>
+                    <td>${member.phone}</td>
+                    <td>${member.email || ""}</td>
+                    <td>${member.age || ""}</td>
+                    <td>${member.gender || ""}</td>
+                    <td>${member.expiry_date}</td>
+                </tr>
+            `;
 
-            list.appendChild(li);
+            table.innerHTML += row;
         });
     });
 }
+
 
 // --------------------
 // LOAD ALERTS
@@ -81,6 +88,7 @@ function loadAlerts() {
         });
     });
 }
+
 
 // --------------------
 // CSV UPLOAD
@@ -112,6 +120,7 @@ function uploadCSV() {
         loadAlerts();
     });
 }
+
 
 // --------------------
 // AUTO LOAD

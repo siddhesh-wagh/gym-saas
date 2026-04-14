@@ -2,12 +2,15 @@ from flask import Flask, jsonify, request, render_template
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 import csv
+import os
 
-app = Flask(__name__)
+app = Flask(__name__)   # ✅ FIRST create app
 
-# -----------------------
-# Database Config
-# -----------------------
+# ✅ THEN configure
+UPLOAD_FOLDER = "static/uploads"
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+# PostgreSQL connection
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://gym_admin:gym123@localhost:5432/gym_saas'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -72,31 +75,36 @@ def home():
 # -----------------------
 @app.route("/add-member", methods=["POST"])
 def add_member():
-    data = request.get_json()
+    name = request.form.get("name")
+    phone = request.form.get("phone")
+    email = request.form.get("email")
+    age = request.form.get("age")
+    gender = request.form.get("gender")
+    address = request.form.get("address")
 
-    name = data.get("name")
-    phone = data.get("phone")
-    email = data.get("email")
-    age = data.get("age")
-    gender = data.get("gender")
-    address = data.get("address")
+    gym_id = int(request.form.get("gym_id"))
+    plan_id = int(request.form.get("plan_id"))
 
-    plan_id = data.get("plan_id")
-    gym_id = data.get("gym_id")
+    file = request.files.get("photo")
 
-    # Check duplicate phone
-    existing = Member.query.filter_by(phone=phone, gym_id=gym_id).first()
-    if existing:
-        return jsonify({"error": "Member already exists"}), 400
+    # ✅ Save photo
+    photo_path = None
+    if file:
+        filename = f"{phone}.jpg"
+        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        file.save(filepath)
+        photo_path = filepath
 
+    # Get plan
     plan = db.session.get(Plan, plan_id)
+
     if not plan:
         return jsonify({"error": "Invalid plan"}), 400
 
     join_date = datetime.today().date()
     expiry_date = join_date + timedelta(days=plan.duration_days)
 
-    # Generate unique ID
+    # Unique ID
     unique_id = generate_member_id()
 
     new_member = Member(
@@ -107,6 +115,7 @@ def add_member():
         age=age,
         gender=gender,
         address=address,
+        photo=photo_path,
         join_date=join_date,
         expiry_date=expiry_date,
         gym_id=gym_id,
@@ -117,11 +126,10 @@ def add_member():
     db.session.commit()
 
     return jsonify({
-        "message": "Member added successfully",
+        "message": "Member added",
         "member_id": unique_id,
-        "expiry_date": str(expiry_date)
+        "photo": photo_path
     })
-
 
 
 # -----------------------
@@ -181,16 +189,20 @@ def get_members(gym_id):
     members = Member.query.filter_by(gym_id=gym_id).all()
 
     result = []
+
     for m in members:
         result.append({
-            "id": m.id,
+            "unique_id": m.unique_id,
             "name": m.name,
             "phone": m.phone,
-            "join_date": str(m.join_date),
+            "email": m.email,
+            "age": m.age,
+            "gender": m.gender,
             "expiry_date": str(m.expiry_date)
         })
 
     return jsonify(result)
+
 
 
 # -----------------------
