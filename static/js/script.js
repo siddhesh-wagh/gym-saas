@@ -13,8 +13,12 @@ function addMember() {
         body: JSON.stringify({
             name: document.getElementById("name").value,
             phone: document.getElementById("phone").value,
-            gym_id: GYM_ID,
-            plan_id: PLAN_ID
+            email: document.getElementById("email").value,
+            age: document.getElementById("age").value,
+            gender: document.getElementById("gender").value,
+            address: document.getElementById("address").value,
+            plan_id: document.getElementById("plan_id").value,
+            gym_id: 1
         })
     })
     .then(res => res.json())
@@ -23,13 +27,14 @@ function addMember() {
             document.getElementById("result").innerText = "❌ " + data.error;
         } else {
             document.getElementById("result").innerText =
-                "✅ Member added | Expiry: " + data.expiry_date;
+                "✅ ID: " + data.member_id +
+                " | Expiry: " + data.expiry_date;
 
             loadMembers();
-            loadAlerts();
         }
     });
 }
+
 
 // --------------------
 // LOAD MEMBERS

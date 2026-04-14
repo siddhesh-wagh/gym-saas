@@ -30,16 +30,32 @@ class Plan(db.Model):
     duration_days = db.Column(db.Integer)
 
 
+import random
+
+def generate_member_id():
+    return str(random.randint(100, 999))
+
+
 class Member(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+
+    unique_id = db.Column(db.String(10), unique=True)
+
     name = db.Column(db.String(100))
     phone = db.Column(db.String(20))
+    email = db.Column(db.String(100))
+
+    age = db.Column(db.Integer)
+    gender = db.Column(db.String(10))
+    address = db.Column(db.String(200))
+    photo = db.Column(db.String(200))
 
     join_date = db.Column(db.Date)
     expiry_date = db.Column(db.Date)
 
     gym_id = db.Column(db.Integer, db.ForeignKey('gym.id'))
     plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'))
+
 
 # -----------------------
 # Routes
@@ -60,22 +76,37 @@ def add_member():
 
     name = data.get("name")
     phone = data.get("phone")
-    plan_id = int(data.get("plan_id"))
-    gym_id = int(data.get("gym_id"))
+    email = data.get("email")
+    age = data.get("age")
+    gender = data.get("gender")
+    address = data.get("address")
 
-    # Get plan
-    plan = db.session.get(Plan, plan_id)  # ✅ modern method
+    plan_id = data.get("plan_id")
+    gym_id = data.get("gym_id")
 
+    # Check duplicate phone
+    existing = Member.query.filter_by(phone=phone, gym_id=gym_id).first()
+    if existing:
+        return jsonify({"error": "Member already exists"}), 400
+
+    plan = db.session.get(Plan, plan_id)
     if not plan:
-        return jsonify({"error": "Invalid plan_id"}), 400
+        return jsonify({"error": "Invalid plan"}), 400
 
-    # Date logic
     join_date = datetime.today().date()
     expiry_date = join_date + timedelta(days=plan.duration_days)
 
+    # Generate unique ID
+    unique_id = generate_member_id()
+
     new_member = Member(
+        unique_id=unique_id,
         name=name,
         phone=phone,
+        email=email,
+        age=age,
+        gender=gender,
+        address=address,
         join_date=join_date,
         expiry_date=expiry_date,
         gym_id=gym_id,
@@ -87,8 +118,10 @@ def add_member():
 
     return jsonify({
         "message": "Member added successfully",
+        "member_id": unique_id,
         "expiry_date": str(expiry_date)
     })
+
 
 
 # -----------------------

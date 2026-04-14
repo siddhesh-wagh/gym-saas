@@ -1,57 +1,74 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
+  <head>
     <title>Gym SaaS Dashboard</title>
 
     <!-- CSS -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+  </head>
 
-<body>
+  <body>
+    <div class="container">
+      <h1>🏋️ Gym Dashboard</h1>
 
-<div class="container">
-
-    <h1>🏋️ Gym Dashboard</h1>
-
-    <!-- ADD MEMBER -->
-    <div class="card">
+      <!-- ADD MEMBER -->
+      <div class="card">
         <h2>Add Member</h2>
 
-        <input type="text" id="name" placeholder="Name">
-        <input type="text" id="phone" placeholder="Phone">
+        <input type="text" id="name" placeholder="Name" />
+        <input type="text" id="phone" placeholder="Phone" />
+        <input type="email" id="email" placeholder="Email" />
+
+        <input type="number" id="age" placeholder="Age" />
+
+        <select id="gender">
+          <option value="">Select Gender</option>
+          <option>Male</option>
+          <option>Female</option>
+        </select>
+
+        <input type="text" id="address" placeholder="Address" />
+
+        <select id="plan_id">
+          <option value="1">1 Month</option>
+          <option value="2">3 Months</option>
+          <option value="3">6 Months</option>
+          <option value="4">12 Months</option>
+        </select>
 
         <button onclick="addMember()">Add Member</button>
 
         <p id="result"></p>
-    </div>
+      </div>
 
-    <!-- CSV UPLOAD -->
-    <div class="card">
+      <!-- CSV UPLOAD -->
+      <div class="card">
         <h2>Upload CSV</h2>
 
-        <input type="file" id="csvFile">
+        <input type="file" id="csvFile" />
         <button onclick="uploadCSV()">Upload</button>
 
         <p id="csvResult"></p>
-    </div>
+      </div>
 
-    <!-- EXPIRY ALERTS -->
-    <div class="card">
+      <!-- EXPIRY ALERTS -->
+      <div class="card">
         <h2>⚠ Expiring Members</h2>
         <ul id="alertsList"></ul>
-    </div>
+      </div>
 
-    <!-- MEMBERS LIST -->
-    <div class="card">
+      <!-- MEMBERS LIST -->
+      <div class="card">
         <h2>All Members</h2>
         <button onclick="loadMembers()">Refresh</button>
         <ul id="membersList"></ul>
+      </div>
     </div>
 
-</div>
-
-<!-- JS -->
-<script src="{{ url_for('static', filename='js/script.js') }}"></script>
-
-</body>
+    <!-- JS -->
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+  </body>
 </html>
