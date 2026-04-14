@@ -3,21 +3,27 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 import csv
 import os
+import random
 
-app = Flask(__name__)   # ✅ FIRST create app
+app = Flask(__name__)
 
-# ✅ THEN configure
+# -----------------------
+# Config
+# -----------------------
+
 UPLOAD_FOLDER = "static/uploads"
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-# PostgreSQL connection
+# Create folder if not exists ✅
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://gym_admin:gym123@localhost:5432/gym_saas'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
 # -----------------------
-# Models (Tables)
+# Models
 # -----------------------
 
 class Gym(db.Model):
@@ -33,15 +39,16 @@ class Plan(db.Model):
     duration_days = db.Column(db.Integer)
 
 
-import random
-
 def generate_member_id():
     return str(random.randint(100, 999))
 
 
 class Member(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    __table_args__ = (
+        db.UniqueConstraint('phone', 'gym_id', name='unique_member_per_gym'),
+    )
 
+    id = db.Column(db.Integer, primary_key=True)
     unique_id = db.Column(db.String(10), unique=True)
 
     name = db.Column(db.String(100))
@@ -59,137 +66,103 @@ class Member(db.Model):
     gym_id = db.Column(db.Integer, db.ForeignKey('gym.id'))
     plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'))
 
-
 # -----------------------
 # Routes
 # -----------------------
 
-# Home (Frontend Page)
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
 # -----------------------
-# Add Member API
+# Add Member
 # -----------------------
 @app.route("/add-member", methods=["POST"])
 def add_member():
-    name = request.form.get("name")
-    phone = request.form.get("phone")
-    email = request.form.get("email")
-    age = request.form.get("age")
-    gender = request.form.get("gender")
-    address = request.form.get("address")
+    try:
+        name = request.form.get("name")
+        phone = request.form.get("phone")
+        email = request.form.get("email")
+        age = request.form.get("age")
+        gender = request.form.get("gender")
+        address = request.form.get("address")
 
-    gym_id = int(request.form.get("gym_id"))
-    plan_id = int(request.form.get("plan_id"))
+        gym_id = int(request.form.get("gym_id"))
+        plan_id = int(request.form.get("plan_id"))
 
-    file = request.files.get("photo")
+        file = request.files.get("photo")
 
-    # ✅ Save photo
-    photo_path = None
-    if file:
-        filename = f"{phone}.jpg"
-        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        file.save(filepath)
-        photo_path = filepath
+        # Validation
+        if not name or not phone:
+            return jsonify({"error": "Name and phone required"}), 400
 
-    # Get plan
-    plan = db.session.get(Plan, plan_id)
+        # Duplicate check
+        existing = Member.query.filter_by(phone=phone, gym_id=gym_id).first()
+        if existing:
+            return jsonify({"error": "Member already exists"}), 400
 
-    if not plan:
-        return jsonify({"error": "Invalid plan"}), 400
+        # Plan check
+        plan = db.session.get(Plan, plan_id)
+        if not plan:
+            return jsonify({"error": "Invalid plan"}), 400
 
-    join_date = datetime.today().date()
-    expiry_date = join_date + timedelta(days=plan.duration_days)
+        # Save photo
+        photo_path = None
+        if file and file.filename != "":
+            filename = f"{phone}.jpg"
+            filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            file.save(filepath)
+            photo_path = "/" + filepath.replace("\\", "/")
 
-    # Unique ID
-    unique_id = generate_member_id()
+        # Dates
+        join_date = datetime.today().date()
+        expiry_date = join_date + timedelta(days=plan.duration_days)
 
-    new_member = Member(
-        unique_id=unique_id,
-        name=name,
-        phone=phone,
-        email=email,
-        age=age,
-        gender=gender,
-        address=address,
-        photo=photo_path,
-        join_date=join_date,
-        expiry_date=expiry_date,
-        gym_id=gym_id,
-        plan_id=plan_id
-    )
+        # Unique ID (retry if duplicate)
+        while True:
+            unique_id = generate_member_id()
+            exists = Member.query.filter_by(unique_id=unique_id).first()
+            if not exists:
+                break
 
-    db.session.add(new_member)
-    db.session.commit()
+        # Create member
+        new_member = Member(
+            unique_id=unique_id,
+            name=name,
+            phone=phone,
+            email=email,
+            age=int(age) if age else None,
+            gender=gender,
+            address=address,
+            photo=photo_path,
+            join_date=join_date,
+            expiry_date=expiry_date,
+            gym_id=gym_id,
+            plan_id=plan_id
+        )
 
-    return jsonify({
-        "message": "Member added",
-        "member_id": unique_id,
-        "photo": photo_path
-    })
+        db.session.add(new_member)
+        db.session.commit()
 
+        return jsonify({
+            "message": "Member added successfully",
+            "member_id": unique_id,
+            "expiry_date": str(expiry_date)
+        })
 
-# -----------------------
-# Signup API
-# -----------------------
-@app.route("/signup", methods=["POST"])
-def signup():
-    data = request.get_json()
-
-    name = data.get("name")
-    email = data.get("email")
-    password = data.get("password")
-
-    # Check existing
-    existing = Gym.query.filter_by(email=email).first()
-
-    if existing:
-        return jsonify({"error": "Gym already exists"}), 400
-
-    new_gym = Gym(name=name, email=email, password=password)
-
-    db.session.add(new_gym)
-    db.session.commit()
-
-    return jsonify({
-        "message": "Gym created successfully",
-        "gym_id": new_gym.id
-    })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # -----------------------
-# Login API
-# -----------------------
-@app.route("/login", methods=["POST"])
-def login():
-    data = request.get_json()
-
-    email = data.get("email")
-    password = data.get("password")
-
-    gym = Gym.query.filter_by(email=email, password=password).first()
-
-    if not gym:
-        return jsonify({"error": "Invalid credentials"}), 401
-
-    return jsonify({
-        "message": "Login successful",
-        "gym_id": gym.id
-    })
-
-
-# -----------------------
-# Get All Members
+# Get Members
 # -----------------------
 @app.route("/members/<int:gym_id>", methods=["GET"])
 def get_members(gym_id):
     members = Member.query.filter_by(gym_id=gym_id).all()
 
     result = []
-
     for m in members:
         result.append({
             "unique_id": m.unique_id,
@@ -198,32 +171,7 @@ def get_members(gym_id):
             "email": m.email,
             "age": m.age,
             "gender": m.gender,
-            "expiry_date": str(m.expiry_date)
-        })
-
-    return jsonify(result)
-
-
-
-# -----------------------
-# Expiring Members (Next 3 Days)
-# -----------------------
-@app.route("/expiring-members/<int:gym_id>", methods=["GET"])
-def get_expiring_members(gym_id):
-    today = datetime.today().date()
-    next_3_days = today + timedelta(days=3)
-
-    members = Member.query.filter(
-        Member.gym_id == gym_id,
-        Member.expiry_date >= today,
-        Member.expiry_date <= next_3_days
-    ).all()
-
-    result = []
-    for m in members:
-        result.append({
-            "name": m.name,
-            "phone": m.phone,
+            "photo": m.photo,
             "expiry_date": str(m.expiry_date)
         })
 
@@ -231,85 +179,7 @@ def get_expiring_members(gym_id):
 
 
 # -----------------------
-# CSV Upload (Bulk Insert with Duplicate Check)
-# -----------------------
-@app.route("/upload-csv", methods=["POST"])
-def upload_csv():
-    file = request.files.get("file")
-    gym_id = request.form.get("gym_id")
-    plan_id = request.form.get("plan_id")
-
-    # Validate input
-    if not file:
-        return jsonify({"error": "No file uploaded"}), 400
-
-    if not gym_id or not plan_id:
-        return jsonify({"error": "gym_id and plan_id required"}), 400
-
-    # Convert to int
-    gym_id = int(gym_id)
-    plan_id = int(plan_id)
-
-    # Get plan
-    plan = db.session.get(Plan, plan_id)
-    if not plan:
-        return jsonify({"error": "Invalid plan_id"}), 400
-
-    # Dates
-    join_date = datetime.today().date()
-    expiry_date = join_date + timedelta(days=plan.duration_days)
-
-    # Read CSV
-    csv_data = file.read().decode("utf-8").splitlines()
-    reader = csv.DictReader(csv_data)
-
-    inserted = 0
-    skipped = 0
-
-    for row in reader:
-        name = row.get("name")
-        phone = row.get("phone")
-
-        # Skip empty rows
-        if not name or not phone:
-            skipped += 1
-            continue
-
-        # 🔥 Check duplicate phone inside same gym
-        existing_member = Member.query.filter_by(
-            phone=phone,
-            gym_id=gym_id
-        ).first()
-
-        if existing_member:
-            skipped += 1
-            continue
-
-        # Create member
-        member = Member(
-            name=name,
-            phone=phone,
-            join_date=join_date,
-            expiry_date=expiry_date,
-            gym_id=gym_id,
-            plan_id=plan_id
-        )
-
-        db.session.add(member)
-        inserted += 1
-
-    db.session.commit()
-
-    return jsonify({
-        "message": "CSV upload completed",
-        "inserted": inserted,
-        "skipped_duplicates": skipped
-    })
-
-
-
-# -----------------------
-# Expiry Alerts API
+# Expiry Alerts
 # -----------------------
 @app.route("/expiry-alerts/<int:gym_id>", methods=["GET"])
 def expiry_alerts(gym_id):
@@ -334,14 +204,75 @@ def expiry_alerts(gym_id):
 
 
 # -----------------------
-# Create Tables
+# CSV Upload
+# -----------------------
+@app.route("/upload-csv", methods=["POST"])
+def upload_csv():
+    file = request.files.get("file")
+    gym_id = request.form.get("gym_id")
+    plan_id = request.form.get("plan_id")
+
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    gym_id = int(gym_id)
+    plan_id = int(plan_id)
+
+    plan = db.session.get(Plan, plan_id)
+    if not plan:
+        return jsonify({"error": "Invalid plan"}), 400
+
+    join_date = datetime.today().date()
+    expiry_date = join_date + timedelta(days=plan.duration_days)
+
+    csv_data = file.read().decode("utf-8").splitlines()
+    reader = csv.DictReader(csv_data)
+
+    inserted = 0
+    skipped = 0
+
+    for row in reader:
+        name = row.get("name")
+        phone = row.get("phone")
+
+        if not name or not phone:
+            skipped += 1
+            continue
+
+        existing = Member.query.filter_by(phone=phone, gym_id=gym_id).first()
+        if existing:
+            skipped += 1
+            continue
+
+        member = Member(
+            name=name,
+            phone=phone,
+            join_date=join_date,
+            expiry_date=expiry_date,
+            gym_id=gym_id,
+            plan_id=plan_id
+        )
+
+        db.session.add(member)
+        inserted += 1
+
+    db.session.commit()
+
+    return jsonify({
+        "inserted": inserted,
+        "skipped": skipped
+    })
+
+
+# -----------------------
+# Init DB
 # -----------------------
 with app.app_context():
     db.create_all()
 
 
 # -----------------------
-# Run App
+# Run
 # -----------------------
 if __name__ == "__main__":
     app.run(debug=True)

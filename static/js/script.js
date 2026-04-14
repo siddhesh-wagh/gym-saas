@@ -1,6 +1,7 @@
 const GYM_ID = 1;
 const PLAN_ID = 1;
 
+
 // --------------------
 // ADD MEMBER (WITH PHOTO)
 // --------------------
@@ -10,7 +11,7 @@ document.getElementById("memberForm").addEventListener("submit", function(e) {
     let formData = new FormData(this);
 
     formData.append("gym_id", GYM_ID);
-    formData.append("plan_id", PLAN_ID);
+    formData.append("plan_id", document.getElementById("plan_id").value);
 
     fetch("/add-member", {
         method: "POST",
