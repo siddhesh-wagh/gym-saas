@@ -76,6 +76,10 @@ function loadMembers() {
                     <td>${member.expiry_date || "-"}</td>
 
                     <td>
+                        <button onclick='editMember(${JSON.stringify(member)})'>
+                            Edit
+                        </button>
+
                         <button onclick="deleteMember(${member.id})"
                             style="background:red;color:white;">
                             Delete
@@ -108,6 +112,40 @@ function deleteMember(id) {
     })
     .catch(err => console.error(err));
 }
+
+// --------------------
+// EDIT MEMBER
+// --------------------
+function editMember(member) {
+
+    let name = prompt("Name", member.name);
+    let phone = prompt("Phone", member.phone);
+    let email = prompt("Email", member.email);
+    let age = prompt("Age", member.age);
+    let gender = prompt("Gender", member.gender);
+    let address = prompt("Address", member.address);
+
+    fetch(`/update-member/${member.id}`, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            name,
+            phone,
+            email,
+            age: age ? parseInt(age) : null,
+            gender,
+            address
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        alert(data.message || data.error);
+        loadMembers();
+    });
+}
+
 
 
 // --------------------

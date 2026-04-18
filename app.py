@@ -278,7 +278,7 @@ def get_members(gym_id):
 # -----------------------
 @app.route("/delete-member/<int:id>", methods=["DELETE"])
 def delete_member(id):
-    member = Member.query.get(id)
+    member = db.session.get(Member, id)
 
     if not member:
         return jsonify({"error": "Member not found"}), 404
@@ -287,6 +287,39 @@ def delete_member(id):
     db.session.commit()
 
     return jsonify({"message": "Member deleted"})
+
+# -----------------------
+# Update Member
+# -----------------------
+@app.route("/update-member/<int:id>", methods=["PUT"])
+def update_member(id):
+    member = db.session.get(Member, id)
+
+    if not member:
+        return jsonify({"error": "Member not found"}), 404
+
+    data = request.get_json()
+
+    member.name = data.get("name", member.name)
+    member.phone = data.get("phone", member.phone)
+    member.email = data.get("email", member.email)
+
+    # ✅ FIX: safe integer handling
+    age = data.get("age", member.age)
+    if age == "" or age is None or age == "null":
+        member.age = None
+    else:
+        try:
+            member.age = int(age)
+        except ValueError:
+            member.age = None
+
+    member.gender = data.get("gender", member.gender)
+    member.address = data.get("address", member.address)
+
+    db.session.commit()
+
+    return jsonify({"message": "Member updated successfully"})
 
 
 # -----------------------
