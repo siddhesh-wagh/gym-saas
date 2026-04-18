@@ -96,6 +96,7 @@ def add_member():
         # Validation
         if not name or not phone:
             return jsonify({"error": "Name and phone required"}), 400
+            
 
         # Duplicate check
         existing = Member.query.filter_by(phone=phone, gym_id=gym_id).first()
@@ -176,6 +177,19 @@ def get_members(gym_id):
         })
 
     return jsonify(result)
+
+# -----------------------
+# Member Profile (NEW)
+# -----------------------
+@app.route("/member/<unique_id>")
+def member_profile(unique_id):
+    member = Member.query.filter_by(unique_id=unique_id).first()
+
+    if not member:
+        return "Member not found", 404
+
+    return render_template("member.html", member=member)
+
 
 
 # -----------------------
