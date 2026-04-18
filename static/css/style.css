@@ -1,56 +1,243 @@
+/* =========================
+   GLOBAL
+========================= */
 body {
-    font-family: Arial;
-    background: #f4f6f9;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    background: linear-gradient(135deg, #eef2f7, #f9fbfd);
     margin: 0;
     padding: 0;
+    color: #222;
 }
 
 .container {
-    width: 80%;
+    max-width: 1100px;
     margin: auto;
     padding: 20px;
+    animation: fadeIn 0.6s ease-in-out;
 }
 
+/* =========================
+   ANIMATIONS
+========================= */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(25px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* =========================
+   HEADINGS
+========================= */
 h1 {
     text-align: center;
+    margin-bottom: 30px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
 }
 
+h2 {
+    margin-bottom: 15px;
+    font-weight: 600;
+}
+
+/* =========================
+   CARD (PREMIUM STYLE)
+========================= */
 .card {
-    background: white;
-    padding: 20px;
-    margin-bottom: 20px;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    padding: 22px;
+    margin-bottom: 25px;
+    border-radius: 16px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+    transition: all 0.3s ease;
+    animation: slideUp 0.5s ease;
+    border: 1px solid rgba(255,255,255,0.3);
+}
+
+.card:hover {
+    transform: translateY(-6px) scale(1.01);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+}
+
+/* =========================
+   FORM
+========================= */
+form {
+    display: grid;
+    gap: 12px;
+}
+
+label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #555;
+}
+
+input, select {
+    padding: 11px;
     border-radius: 10px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    border: 1px solid #ddd;
+    background: #fff;
+    transition: all 0.25s ease;
 }
 
-input, button {
-    padding: 10px;
-    margin: 5px 0;
-    width: 100%;
+input:hover, select:hover {
+    border-color: #bbb;
 }
 
+input:focus, select:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+    transform: scale(1.02);
+}
+
+/* =========================
+   BUTTONS (GRADIENT + GLOW)
+========================= */
 button {
-    background: #007bff;
-    color: white;
+    margin-top: 10px;
+    padding: 11px;
     border: none;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: white;
+    font-size: 15px;
+    font-weight: 600;
     cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Shine effect */
+button::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -75%;
+    width: 50%;
+    height: 100%;
+    background: rgba(255,255,255,0.2);
+    transform: skewX(-25deg);
+    transition: 0.5s;
+}
+
+button:hover::after {
+    left: 120%;
 }
 
 button:hover {
-    background: #0056b3;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(79,70,229,0.3);
 }
 
-ul {
+/* =========================
+   TABLE (MODERN)
+========================= */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    overflow: hidden;
+    border-radius: 12px;
+}
+
+th {
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: white;
+    padding: 12px;
+    text-align: left;
+    font-size: 14px;
+}
+
+td {
+    padding: 12px;
+    border-bottom: 1px solid #eee;
+    font-size: 14px;
+}
+
+tr {
+    transition: all 0.2s ease;
+}
+
+tr:hover {
+    background: #f5f7ff;
+    transform: scale(1.01);
+}
+
+/* =========================
+   ALERTS (SMOOTH)
+========================= */
+#alertsList {
     list-style: none;
     padding: 0;
 }
 
-li {
-    padding: 10px;
-    border-bottom: 1px solid #ddd;
+#alertsList li {
+    background: #fff7ed;
+    color: #9a3412;
+    padding: 12px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    border-left: 5px solid #f97316;
+    animation: slideUp 0.4s ease;
 }
 
-.alert {
-    color: red;
-    font-weight: bold;
+/* =========================
+   RESULTS TEXT
+========================= */
+#result, #csvResult {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #444;
+    animation: fadeIn 0.5s ease;
+}
+
+/* =========================
+   FILE INPUT STYLE
+========================= */
+input[type="file"] {
+    background: #f9fafb;
+    border: 1px dashed #ccc;
+    padding: 12px;
+    cursor: pointer;
+}
+
+input[type="file"]:hover {
+    border-color: #6366f1;
+}
+
+/* =========================
+   RESPONSIVE
+========================= */
+@media (max-width: 768px) {
+    .card {
+        padding: 16px;
+    }
+
+    table, thead, tbody, th, td, tr {
+        display: block;
+    }
+
+    th {
+        display: none;
+    }
+
+    td {
+        padding: 10px;
+        border-bottom: 1px solid #eee;
+    }
+
+    td::before {
+        content: attr(data-label);
+        font-weight: bold;
+        display: block;
+        margin-bottom: 4px;
+        color: #666;
+    }
 }

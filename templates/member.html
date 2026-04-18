@@ -4,52 +4,204 @@
     <title>Member Profile</title>
 
     <style>
-        body {
-            font-family: Arial;
-            background: #f5f5f5;
-        }
+       /* =========================
+   GLOBAL
+========================= */
+body {
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    background: linear-gradient(135deg, #eef2f7, #f9fbfd);
+    margin: 0;
+    padding: 0;
+    color: #222;
+}
 
-        .container {
-            width: 600px;
-            margin: 40px auto;
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 0 10px #ccc;
-        }
+/* =========================
+   CONTAINER
+========================= */
+.container {
+    width: 600px;
+    margin: 40px auto;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    padding: 25px;
+    border-radius: 16px;
+    box-shadow: 0 10px 35px rgba(0,0,0,0.08);
+    animation: fadeIn 0.5s ease;
+}
 
-        .header {
-            text-align: center;
-        }
+/* =========================
+   ANIMATIONS
+========================= */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(15px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 
-        img {
-            width: 120px;
-            border-radius: 50%;
-            margin-bottom: 10px;
-        }
+@keyframes pop {
+    from { transform: scale(0.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
 
-        .info {
-            margin-top: 20px;
-        }
+/* =========================
+   HEADER
+========================= */
+.header {
+    text-align: center;
+}
 
-        .info p {
-            margin: 8px 0;
-        }
+.header img {
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 50%;
+    margin-bottom: 10px;
+    border: 4px solid white;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.1);
+    animation: pop 0.4s ease;
+}
 
-        .expiry {
-            color: red;
-            font-weight: bold;
-        }
+.header h2 {
+    margin: 5px 0;
+}
 
-        .back {
-            margin-top: 20px;
-            display: inline-block;
-            text-decoration: none;
-            color: white;
-            background: black;
-            padding: 8px 12px;
-            border-radius: 5px;
-        }
+.header p {
+    color: #666;
+    font-size: 14px;
+}
+
+/* =========================
+   INFO
+========================= */
+.info {
+    margin-top: 20px;
+    font-size: 14px;
+}
+
+.info p {
+    margin: 8px 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    transition: 0.2s;
+}
+
+.info p:hover {
+    background: #f5f7ff;
+}
+
+/* Expiry Highlight */
+.expiry {
+    color: #dc2626;
+    font-weight: bold;
+    background: #fff1f2;
+    padding: 10px;
+    border-radius: 8px;
+}
+
+/* Divider */
+hr {
+    border: none;
+    height: 1px;
+    background: #eee;
+    margin: 15px 0;
+}
+
+/* =========================
+   BUTTONS (PREMIUM)
+========================= */
+.btn {
+    margin-top: 15px;
+    display: inline-block;
+    text-decoration: none;
+    color: white;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Shine effect */
+.btn::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -75%;
+    width: 50%;
+    height: 100%;
+    background: rgba(255,255,255,0.2);
+    transform: skewX(-25deg);
+    transition: 0.5s;
+}
+
+.btn:hover::after {
+    left: 120%;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(79,70,229,0.3);
+}
+
+/* Renew Button Special */
+.renew {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+
+/* =========================
+   HISTORY
+========================= */
+.history {
+    margin-top: 25px;
+}
+
+.history h3 {
+    margin-bottom: 10px;
+}
+
+.history ul {
+    padding-left: 0;
+    list-style: none;
+}
+
+.history li {
+    background: #f8fafc;
+    padding: 10px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    transition: 0.25s;
+    animation: fadeIn 0.4s ease;
+}
+
+.history li:hover {
+    background: #eef2ff;
+    transform: translateX(5px);
+}
+
+/* =========================
+   BACK BUTTON
+========================= */
+a.btn {
+    margin-top: 20px;
+    display: inline-block;
+}
+
+/* =========================
+   RESPONSIVE
+========================= */
+@media (max-width: 650px) {
+    .container {
+        width: 90%;
+        padding: 20px;
+    }
+}
+
+
     </style>
 </head>
 
@@ -57,6 +209,7 @@
 
 <div class="container">
 
+    <!-- HEADER -->
     <div class="header">
         {% if member.photo %}
             <img src="{{ member.photo }}">
@@ -68,22 +221,102 @@
         <p>ID: {{ member.unique_id }}</p>
     </div>
 
+    <!-- INFO -->
     <div class="info">
         <p><b>Phone:</b> {{ member.phone }}</p>
-        <p><b>Email:</b> {{ member.email }}</p>
-        <p><b>Age:</b> {{ member.age }}</p>
-        <p><b>Gender:</b> {{ member.gender }}</p>
-        <p><b>Address:</b> {{ member.address }}</p>
+        <p><b>Email:</b> {{ member.email or "N/A" }}</p>
+        <p><b>Age:</b> {{ member.age or "-" }}</p>
+        <p><b>Gender:</b> {{ member.gender or "-" }}</p>
+        <p><b>Address:</b> {{ member.address or "-" }}</p>
 
         <hr>
 
         <p><b>Join Date:</b> {{ member.join_date }}</p>
         <p class="expiry"><b>Expiry Date:</b> {{ member.expiry_date }}</p>
+
+        <!-- RENEW BUTTON -->
+        <button class="btn renew" onclick="renewMembership()">Renew Membership</button>
     </div>
 
-    <a href="/" class="back">⬅ Back to Dashboard</a>
+    <!-- HISTORY -->
+    <div class="history">
+        <h3>Membership History</h3>
+        <ul id="historyList">
+            <li>Loading...</li>
+        </ul>
+    </div>
+
+    <!-- BACK -->
+    <a href="/" class="btn">⬅ Back to Dashboard</a>
 
 </div>
 
 </body>
+
+<script>
+
+// --------------------
+// LOAD HISTORY
+// --------------------
+fetch("/member-history/{{ member.id }}")
+.then(res => res.json())
+.then(data => {
+    let list = document.getElementById("historyList");
+    list.innerHTML = "";
+
+    if (!data.length) {
+        list.innerHTML = "<li>No history found</li>";
+        return;
+    }
+
+    data.forEach(h => {
+        let li = document.createElement("li");
+
+        // Optional: map plan_id to readable name
+        let planName = {
+            1: "Monthly",
+            2: "3 Months",
+            3: "6 Months",
+            4: "12 Months"
+        }[h.plan_id] || "Plan " + h.plan_id;
+
+        li.innerText =
+            `${planName} | ${h.start_date} → ${h.end_date}`;
+
+        list.appendChild(li);
+    });
+});
+
+
+// --------------------
+// RENEW MEMBERSHIP
+// --------------------
+function renewMembership() {
+    let plan_id = prompt("Enter Plan ID (1=Monthly, 2=3M, 3=6M, 4=12M)");
+
+    if (!plan_id) return;
+
+    fetch("/renew-member", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            member_id: {{ member.id }},
+            plan_id: parseInt(plan_id)
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.error) {
+            alert("❌ " + data.error);
+        } else {
+            alert("✅ Renewed till " + data.new_expiry);
+            location.reload();
+        }
+    });
+}
+
+</script>
+
 </html>
