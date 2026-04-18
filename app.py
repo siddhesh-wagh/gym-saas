@@ -273,6 +273,21 @@ def get_members(gym_id):
 
     return jsonify(result)
 
+# -----------------------
+# Delete Member
+# -----------------------
+@app.route("/delete-member/<int:id>", methods=["DELETE"])
+def delete_member(id):
+    member = Member.query.get(id)
+
+    if not member:
+        return jsonify({"error": "Member not found"}), 404
+
+    db.session.delete(member)
+    db.session.commit()
+
+    return jsonify({"message": "Member deleted"})
+
 
 # -----------------------
 # Expiry Alerts

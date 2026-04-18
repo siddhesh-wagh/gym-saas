@@ -47,7 +47,7 @@ function loadMembers() {
         table.innerHTML = "";
 
         if (!data.length) {
-            table.innerHTML = "<tr><td colspan='8'>No members found</td></tr>";
+            table.innerHTML = "<tr><td colspan='9'>No members found</td></tr>";
             return;
         }
 
@@ -74,11 +74,37 @@ function loadMembers() {
                     </td>
 
                     <td>${member.expiry_date || "-"}</td>
+
+                    <td>
+                        <button onclick="deleteMember(${member.id})"
+                            style="background:red;color:white;">
+                            Delete
+                        </button>
+                    </td>
                 </tr>
             `;
 
             table.innerHTML += row;
         });
+    })
+    .catch(err => console.error(err));
+}
+
+
+// --------------------
+// DELETE MEMBER
+// --------------------
+function deleteMember(id) {
+    if (!confirm("Are you sure you want to delete this member?")) return;
+
+    fetch(`/delete-member/${id}`, {
+        method: "DELETE"
+    })
+    .then(res => res.json())
+    .then(data => {
+        alert(data.message || data.error);
+        loadMembers();
+        loadAlerts();
     })
     .catch(err => console.error(err));
 }
