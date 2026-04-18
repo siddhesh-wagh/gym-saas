@@ -207,8 +207,7 @@ a.btn {
 
 <body>
 
-<div class="container">
-
+<div class="container profile-container">
     <!-- HEADER -->
     <div class="header">
         {% if member.photo %}
@@ -255,10 +254,13 @@ a.btn {
 
 <script>
 
+// Fix for Jinja + JS
+const MEMBER_ID = {{ member.id }};
+
 // --------------------
 // LOAD HISTORY
 // --------------------
-fetch("/member-history/{{ member.id }}")
+fetch(`/member-history/${MEMBER_ID}`)
 .then(res => res.json())
 .then(data => {
     let list = document.getElementById("historyList");
@@ -272,7 +274,6 @@ fetch("/member-history/{{ member.id }}")
     data.forEach(h => {
         let li = document.createElement("li");
 
-        // Optional: map plan_id to readable name
         let planName = {
             1: "Monthly",
             2: "3 Months",
@@ -280,8 +281,7 @@ fetch("/member-history/{{ member.id }}")
             4: "12 Months"
         }[h.plan_id] || "Plan " + h.plan_id;
 
-        li.innerText =
-            `${planName} | ${h.start_date} → ${h.end_date}`;
+        li.innerText = `${planName} | ${h.start_date} → ${h.end_date}`;
 
         list.appendChild(li);
     });
@@ -302,7 +302,7 @@ function renewMembership() {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            member_id: {{ member.id }},
+            member_id: MEMBER_ID,
             plan_id: parseInt(plan_id)
         })
     })
