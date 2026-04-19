@@ -42,7 +42,7 @@ document.getElementById("memberForm").addEventListener("submit", function (e) {
 // LOAD MEMBERS
 // --------------------
 function loadMembers() {
-    fetch(`/members/${gymId}`)
+    fetch(`/members`)
     .then(res => {
         if (!res.ok) throw new Error("Failed to load members");
         return res.json();
@@ -163,7 +163,7 @@ function editMember(member) {
 // LOAD ALERTS
 // --------------------
 function loadAlerts() {
-    fetch(`/expiry-alerts/${gymId}`)
+    fetch(`/expiry-alerts`)
     .then(res => {
         if (!res.ok) throw new Error("Failed to load alerts");
         return res.json();

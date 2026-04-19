@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 import os
 import csv
 import random
@@ -23,14 +24,49 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=False,   # Set True in production (HTTPS)
+    SESSION_COOKIE_SAMESITE="Lax"
+)
+
+# Only these emails can have admin role — extra safety net
+ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "").split(",")
+
 db = SQLAlchemy(app)
 
+
 # -----------------------
-# Helper
+# Auth Decorators
 # -----------------------
 
-def login_required():
-    return "gym_id" in session
+def login_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if "gym_id" not in session:
+            if request.method in ("POST", "PUT", "DELETE") or request.is_json:
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect("/login")
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def role_required(role):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            if session.get("role") != role:
+                if request.method in ("POST", "PUT", "DELETE") or request.is_json:
+                    return jsonify({"error": "Forbidden"}), 403
+                return "Unauthorized", 403
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def owns_member(member):
+    """True if the session user is allowed to access this member."""
+    return session.get("role") == "admin" or member.gym_id == session["gym_id"]
 
 
 # -----------------------
@@ -38,16 +74,18 @@ def login_required():
 # -----------------------
 
 class Gym(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
-    email = db.Column(db.String(100), unique=True)
-    password = db.Column(db.String(255))
-    role = db.Column(db.String(20), default="gym")  # "admin" or "gym"
+    id        = db.Column(db.Integer, primary_key=True)
+    name      = db.Column(db.String(100))
+    email     = db.Column(db.String(100), unique=True)
+    password  = db.Column(db.String(255))
+    role      = db.Column(db.String(20), default="gym")   # "admin" or "gym"
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class Plan(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50))
+    id            = db.Column(db.Integer, primary_key=True)
+    name          = db.Column(db.String(50))
     duration_days = db.Column(db.Integer)
 
 
@@ -61,65 +99,63 @@ class Member(db.Model):
         db.UniqueConstraint('email', 'gym_id', name='unique_email_per_gym'),
     )
 
-    id = db.Column(db.Integer, primary_key=True)
+    id        = db.Column(db.Integer, primary_key=True)
     unique_id = db.Column(db.String(10), unique=True)
 
-    name = db.Column(db.String(100))
-    phone = db.Column(db.String(20))
-    email = db.Column(db.String(100), nullable=True)
-
-    age = db.Column(db.Integer)
-    gender = db.Column(db.String(10))
+    name    = db.Column(db.String(100))
+    phone   = db.Column(db.String(20))
+    email   = db.Column(db.String(100), nullable=True)
+    age     = db.Column(db.Integer)
+    gender  = db.Column(db.String(10))
     address = db.Column(db.String(200))
-    photo = db.Column(db.String(200))
+    photo   = db.Column(db.String(200))
 
-    join_date = db.Column(db.Date)
+    join_date   = db.Column(db.Date)
     expiry_date = db.Column(db.Date)
 
-    gym_id = db.Column(db.Integer, db.ForeignKey('gym.id'))
+    gym_id  = db.Column(db.Integer, db.ForeignKey('gym.id'))
     plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'))
 
     history = db.relationship('MembershipHistory', backref='member', lazy=True)
 
 
 class MembershipHistory(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-
+    id        = db.Column(db.Integer, primary_key=True)
     member_id = db.Column(db.Integer, db.ForeignKey('member.id'))
-    plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'))
-
+    plan_id   = db.Column(db.Integer, db.ForeignKey('plan.id'))
     start_date = db.Column(db.Date)
-    end_date = db.Column(db.Date)
+    end_date   = db.Column(db.Date)
 
 
 # -----------------------
-# Routes
+# Routes — Public
 # -----------------------
 
 @app.route("/")
 def home():
     if "gym_id" in session:
-        if session.get("role") == "admin":
-            return redirect("/admin")
-        return redirect("/dashboard")
+        return redirect("/admin" if session.get("role") == "admin" else "/dashboard")
     return render_template("login.html")
 
 
 # -----------------------
-# Signup
+# Signup  (gym owners only — role always forced to "gym")
 # -----------------------
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
-        name = request.form.get("name")
-        email = request.form.get("email")
-        password = request.form.get("password")
+        name     = request.form.get("name", "").strip()
+        email    = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+
+        if not name or not email or not password:
+            return render_template("signup.html", error="All fields are required")
 
         if Gym.query.filter_by(email=email).first():
-            return "Email already exists"
+            return render_template("signup.html", error="Email already registered")
 
-        hashed_password = generate_password_hash(password)
-        gym = Gym(name=name, email=email, password=hashed_password, role="gym")
+        hashed = generate_password_hash(password, method='pbkdf2:sha256', salt_length=16)
+        gym = Gym(name=name, email=email, password=hashed, role="gym")
         db.session.add(gym)
         db.session.commit()
 
@@ -134,21 +170,27 @@ def signup():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email = request.form.get("email")
-        password = request.form.get("password")
+        email    = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
 
         gym = Gym.query.filter_by(email=email).first()
 
+        # Always show same error — no info leak about whether account exists
         if not gym or not check_password_hash(gym.password, password):
-            return "Invalid credentials"
+            return render_template("login.html", error="Invalid email or password")
+
+        # Extra guard: admin email whitelist
+        if gym.role == "admin" and gym.email not in ADMIN_EMAILS:
+            return render_template("login.html", error="Invalid email or password")
+
+        # Block disabled gym owners
+        if gym.role == "gym" and not gym.is_active:
+            return render_template("login.html", error="Your account has been disabled. Contact support.")
 
         session["gym_id"] = gym.id
-        session["role"] = gym.role
+        session["role"]   = gym.role
 
-        if gym.role == "admin":
-            return redirect("/admin")
-        else:
-            return redirect("/dashboard")
+        return redirect("/admin" if gym.role == "admin" else "/dashboard")
 
     return render_template("login.html")
 
@@ -163,13 +205,11 @@ def logout():
 
 
 # -----------------------
-# Dashboard
+# Gym Dashboard
 # -----------------------
 @app.route("/dashboard")
+@login_required
 def dashboard():
-    if not login_required():
-        return redirect("/login")
-
     return render_template("index.html")
 
 
@@ -177,45 +217,107 @@ def dashboard():
 # Admin Dashboard
 # -----------------------
 @app.route("/admin")
+@login_required
+@role_required("admin")
 def admin_dashboard():
-    if not login_required():
-        return redirect("/login")
+    gyms          = Gym.query.filter_by(role="gym").order_by(Gym.created_at.desc()).all()
+    total_gyms    = len(gyms)
+    total_members = Member.query.count()
+    active_today  = Member.query.filter(Member.expiry_date >= datetime.today().date()).count()
 
-    if session.get("role") != "admin":
-        return "Unauthorized", 403
+    # Attach member count to each gym object for the template
+    gym_data = []
+    for g in gyms:
+        count = Member.query.filter_by(gym_id=g.id).count()
+        gym_data.append({
+            "id":         g.id,
+            "name":       g.name,
+            "email":      g.email,
+            "is_active":  g.is_active,
+            "created_at": g.created_at.strftime("%d %b %Y") if g.created_at else "—",
+            "members":    count
+        })
 
-    return render_template("admin.html")
+    return render_template("admin.html",
+        total_gyms=total_gyms,
+        total_members=total_members,
+        active_today=active_today,
+        gym_data=gym_data
+    )
+
+
+# -----------------------
+# Admin — Toggle Gym Active/Disabled
+# -----------------------
+@app.route("/admin/toggle-gym/<int:gym_id>", methods=["POST"])
+@login_required
+@role_required("admin")
+def toggle_gym(gym_id):
+    gym = db.session.get(Gym, gym_id)
+    if not gym or gym.role == "admin":
+        return jsonify({"error": "Gym not found"}), 404
+
+    gym.is_active = not gym.is_active
+    db.session.commit()
+
+    return jsonify({
+        "message":   "Gym updated",
+        "is_active": gym.is_active
+    })
+
+
+# -----------------------
+# Admin — Delete Gym
+# -----------------------
+@app.route("/admin/delete-gym/<int:gym_id>", methods=["DELETE"])
+@login_required
+@role_required("admin")
+def delete_gym(gym_id):
+    gym = db.session.get(Gym, gym_id)
+    if not gym or gym.role == "admin":
+        return jsonify({"error": "Gym not found"}), 404
+
+    # Delete members and history first
+    members = Member.query.filter_by(gym_id=gym_id).all()
+    for m in members:
+        MembershipHistory.query.filter_by(member_id=m.id).delete()
+    Member.query.filter_by(gym_id=gym_id).delete()
+
+    db.session.delete(gym)
+    db.session.commit()
+
+    return jsonify({"message": "Gym deleted"})
 
 
 # -----------------------
 # Add Member
 # -----------------------
 @app.route("/add-member", methods=["POST"])
+@login_required
 def add_member():
-    if not login_required():
-        return jsonify({"error": "Unauthorized"}), 401
-
     try:
-        name = request.form.get("name")
-        phone = request.form.get("phone")
-        email = request.form.get("email")
-        age = request.form.get("age")
-        gender = request.form.get("gender")
-        address = request.form.get("address")
+        name    = request.form.get("name", "").strip()
+        phone   = request.form.get("phone", "").strip()
+        email   = request.form.get("email", "").strip().lower() or None
+        age     = request.form.get("age", "").strip()
+        gender  = request.form.get("gender", "").strip()
+        address = request.form.get("address", "").strip()
+        file    = request.files.get("photo")
+        gym_id  = session["gym_id"]
 
-        gym_id = session["gym_id"]
-        plan_id = int(request.form.get("plan_id"))
-
-        file = request.files.get("photo")
+        try:
+            plan_id = int(request.form.get("plan_id"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid plan"}), 400
 
         if not name or not phone:
-            return jsonify({"error": "Name and phone required"}), 400
+            return jsonify({"error": "Name and phone are required"}), 400
 
         if Member.query.filter_by(phone=phone, gym_id=gym_id).first():
-            return jsonify({"error": "Phone already exists"}), 400
+            return jsonify({"error": "Phone already registered"}), 400
 
         if email and Member.query.filter_by(email=email, gym_id=gym_id).first():
-            return jsonify({"error": "Email already exists"}), 400
+            return jsonify({"error": "Email already registered"}), 400
 
         plan = db.session.get(Plan, plan_id)
         if not plan:
@@ -228,7 +330,7 @@ def add_member():
             file.save(filepath)
             photo_path = "/" + filepath.replace("\\", "/")
 
-        join_date = datetime.today().date()
+        join_date   = datetime.today().date()
         expiry_date = join_date + timedelta(days=plan.duration_days)
 
         while True:
@@ -237,36 +339,25 @@ def add_member():
                 break
 
         new_member = Member(
-            unique_id=unique_id,
-            name=name,
-            phone=phone,
-            email=email,
-            age=int(age) if age else None,
-            gender=gender,
-            address=address,
-            photo=photo_path,
-            join_date=join_date,
-            expiry_date=expiry_date,
-            gym_id=gym_id,
-            plan_id=plan_id
+            unique_id=unique_id, name=name, phone=phone, email=email,
+            age=int(age) if age else None, gender=gender or None,
+            address=address or None, photo=photo_path,
+            join_date=join_date, expiry_date=expiry_date,
+            gym_id=gym_id, plan_id=plan_id
         )
 
         db.session.add(new_member)
         db.session.flush()
 
-        history = MembershipHistory(
-            member_id=new_member.id,
-            plan_id=plan_id,
-            start_date=join_date,
-            end_date=expiry_date
-        )
-
-        db.session.add(history)
+        db.session.add(MembershipHistory(
+            member_id=new_member.id, plan_id=plan_id,
+            start_date=join_date, end_date=expiry_date
+        ))
         db.session.commit()
 
         return jsonify({
-            "message": "Member added successfully",
-            "member_id": unique_id,
+            "message":     "Member added successfully",
+            "member_id":   unique_id,
             "expiry_date": str(expiry_date)
         })
 
@@ -279,88 +370,73 @@ def add_member():
 # Renew Membership
 # -----------------------
 @app.route("/renew-member", methods=["POST"])
+@login_required
 def renew_member():
-    if not login_required():
-        return jsonify({"error": "Unauthorized"}), 401
-
     data = request.get_json()
 
-    member_id = data.get("member_id")
-    plan_id = data.get("plan_id")
+    try:
+        member_id = int(data.get("member_id"))
+        plan_id   = int(data.get("plan_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid IDs"}), 400
 
     member = db.session.get(Member, member_id)
-    plan = db.session.get(Plan, plan_id)
+    plan   = db.session.get(Plan, plan_id)
 
     if not member or not plan:
-        return jsonify({"error": "Invalid member or plan"}), 400
+        return jsonify({"error": "Member or plan not found"}), 404
 
-    if session.get("role") != "admin" and member.gym_id != session["gym_id"]:
+    if not owns_member(member):
         return jsonify({"error": "Unauthorized"}), 403
 
     start_date = datetime.today().date()
-    end_date = start_date + timedelta(days=plan.duration_days)
+    end_date   = start_date + timedelta(days=plan.duration_days)
 
     member.expiry_date = end_date
-    member.plan_id = plan_id
+    member.plan_id     = plan_id
 
-    history = MembershipHistory(
-        member_id=member.id,
-        plan_id=plan_id,
-        start_date=start_date,
-        end_date=end_date
-    )
-
-    db.session.add(history)
+    db.session.add(MembershipHistory(
+        member_id=member.id, plan_id=plan_id,
+        start_date=start_date, end_date=end_date
+    ))
     db.session.commit()
 
-    return jsonify({
-        "message": "Membership renewed",
-        "new_expiry": str(end_date)
-    })
+    return jsonify({"message": "Membership renewed", "new_expiry": str(end_date)})
 
 
 # -----------------------
 # Member History
 # -----------------------
 @app.route("/member-history/<int:member_id>")
+@login_required
 def member_history(member_id):
-    if not login_required():
-        return jsonify({"error": "Unauthorized"}), 401
-
     member = db.session.get(Member, member_id)
     if not member:
         return jsonify({"error": "Member not found"}), 404
 
-    if session.get("role") != "admin" and member.gym_id != session["gym_id"]:
+    if not owns_member(member):
         return jsonify({"error": "Unauthorized"}), 403
 
     history = MembershipHistory.query.filter_by(member_id=member_id).all()
 
-    result = []
-    for h in history:
-        result.append({
-            "plan_id": h.plan_id,
-            "start_date": str(h.start_date),
-            "end_date": str(h.end_date)
-        })
-
-    return jsonify(result)
+    return jsonify([{
+        "plan_id":    h.plan_id,
+        "start_date": str(h.start_date),
+        "end_date":   str(h.end_date)
+    } for h in history])
 
 
 # -----------------------
 # Member Profile
 # -----------------------
 @app.route("/member/<unique_id>")
+@login_required
 def member_profile(unique_id):
-    if not login_required():
-        return redirect("/login")
-
     member = Member.query.filter_by(unique_id=unique_id).first()
-
     if not member:
         return "Member not found", 404
 
-    if session.get("role") != "admin" and member.gym_id != session["gym_id"]:
+    if not owns_member(member):
         return "Unauthorized", 403
 
     return render_template("member.html", member=member)
@@ -369,52 +445,41 @@ def member_profile(unique_id):
 # -----------------------
 # Get Members
 # -----------------------
-@app.route("/members/<int:gym_id>")
-def get_members(gym_id):
-    if not login_required():
-        return jsonify({"error": "Unauthorized"}), 401
-
-    if session.get("role") != "admin" and session["gym_id"] != gym_id:
-        return jsonify({"error": "Unauthorized"}), 403
-
+@app.route("/members")
+@login_required
+def get_members():
     if session.get("role") == "admin":
         members = Member.query.all()
     else:
-        members = Member.query.filter_by(gym_id=gym_id).all()
+        members = Member.query.filter_by(gym_id=session["gym_id"]).all()
 
-    result = []
-    for m in members:
-        result.append({
-            "id": m.id,
-            "unique_id": m.unique_id,
-            "name": m.name,
-            "phone": m.phone,
-            "email": m.email,
-            "age": m.age,
-            "gender": m.gender,
-            "photo": m.photo,
-            "expiry_date": str(m.expiry_date)
-        })
-
-    return jsonify(result)
+    return jsonify([{
+        "id":          m.id,
+        "unique_id":   m.unique_id,
+        "name":        m.name,
+        "phone":       m.phone,
+        "email":       m.email,
+        "age":         m.age,
+        "gender":      m.gender,
+        "photo":       m.photo,
+        "expiry_date": str(m.expiry_date)
+    } for m in members])
 
 
 # -----------------------
 # Delete Member
 # -----------------------
 @app.route("/delete-member/<int:id>", methods=["DELETE"])
+@login_required
 def delete_member(id):
-    if not login_required():
-        return jsonify({"error": "Unauthorized"}), 401
-
     member = db.session.get(Member, id)
-
     if not member:
         return jsonify({"error": "Member not found"}), 404
 
-    if session.get("role") != "admin" and member.gym_id != session["gym_id"]:
+    if not owns_member(member):
         return jsonify({"error": "Unauthorized"}), 403
 
+    MembershipHistory.query.filter_by(member_id=member.id).delete()
     db.session.delete(member)
     db.session.commit()
 
@@ -425,35 +490,31 @@ def delete_member(id):
 # Update Member
 # -----------------------
 @app.route("/update-member/<int:id>", methods=["PUT"])
+@login_required
 def update_member(id):
-    if not login_required():
-        return jsonify({"error": "Unauthorized"}), 401
-
     member = db.session.get(Member, id)
-
     if not member:
         return jsonify({"error": "Member not found"}), 404
 
-    if session.get("role") != "admin" and member.gym_id != session["gym_id"]:
+    if not owns_member(member):
         return jsonify({"error": "Unauthorized"}), 403
 
     data = request.get_json()
 
-    member.name = data.get("name", member.name)
-    member.phone = data.get("phone", member.phone)
-    member.email = data.get("email", member.email)
+    member.name    = data.get("name",    member.name)
+    member.phone   = data.get("phone",   member.phone)
+    member.email   = data.get("email",   member.email) or None
+    member.gender  = data.get("gender",  member.gender)
+    member.address = data.get("address", member.address)
 
     age = data.get("age", member.age)
-    if age == "" or age is None or age == "null":
+    if age in ("", None, "null"):
         member.age = None
     else:
         try:
             member.age = int(age)
-        except ValueError:
+        except (ValueError, TypeError):
             member.age = None
-
-    member.gender = data.get("gender", member.gender)
-    member.address = data.get("address", member.address)
 
     db.session.commit()
 
@@ -463,15 +524,11 @@ def update_member(id):
 # -----------------------
 # Expiry Alerts
 # -----------------------
-@app.route("/expiry-alerts/<int:gym_id>")
-def expiry_alerts(gym_id):
-    if not login_required():
-        return jsonify({"error": "Unauthorized"}), 401
-
-    if session.get("role") != "admin" and session["gym_id"] != gym_id:
-        return jsonify({"error": "Unauthorized"}), 403
-
-    today = datetime.today().date()
+@app.route("/expiry-alerts")
+@login_required
+def expiry_alerts():
+    gym_id      = session["gym_id"]
+    today       = datetime.today().date()
     next_3_days = today + timedelta(days=3)
 
     members = Member.query.filter(
@@ -480,44 +537,46 @@ def expiry_alerts(gym_id):
         Member.expiry_date <= next_3_days
     ).all()
 
-    result = []
-    for m in members:
-        result.append({
-            "name": m.name,
-            "phone": m.phone,
-            "expiry_date": str(m.expiry_date)
-        })
-
-    return jsonify(result)
+    return jsonify([{
+        "name":        m.name,
+        "phone":       m.phone,
+        "expiry_date": str(m.expiry_date)
+    } for m in members])
 
 
 # -----------------------
 # CSV Upload
 # -----------------------
 @app.route("/upload-csv", methods=["POST"])
+@login_required
 def upload_csv():
-    if not login_required():
-        return jsonify({"error": "Unauthorized"}), 401
-
-    file = request.files.get("file")
+    file   = request.files.get("file")
     gym_id = session["gym_id"]
-    plan_id = int(request.form.get("plan_id"))
+
+    try:
+        plan_id = int(request.form.get("plan_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid plan"}), 400
 
     plan = db.session.get(Plan, plan_id)
     if not plan:
-        return jsonify({"error": "Invalid plan"}), 400
+        return jsonify({"error": "Plan not found"}), 404
 
-    join_date = datetime.today().date()
+    join_date   = datetime.today().date()
     expiry_date = join_date + timedelta(days=plan.duration_days)
 
     csv_data = file.read().decode("utf-8").splitlines()
-    reader = csv.DictReader(csv_data)
+    reader   = csv.DictReader(csv_data)
 
     inserted, skipped = 0, 0
 
     for row in reader:
-        phone = row.get("phone")
-        email = row.get("email")
+        phone = (row.get("phone") or "").strip()
+        email = (row.get("email") or "").strip().lower() or None
+
+        if not phone:
+            skipped += 1
+            continue
 
         if Member.query.filter_by(phone=phone, gym_id=gym_id).first() or \
            (email and Member.query.filter_by(email=email, gym_id=gym_id).first()):
@@ -531,31 +590,33 @@ def upload_csv():
 
         member = Member(
             unique_id=unique_id,
-            name=row.get("name"),
-            phone=phone,
-            email=email,
-            join_date=join_date,
-            expiry_date=expiry_date,
-            gym_id=gym_id,
-            plan_id=plan_id
+            name=row.get("name", "").strip(),
+            phone=phone, email=email,
+            join_date=join_date, expiry_date=expiry_date,
+            gym_id=gym_id, plan_id=plan_id
         )
 
         db.session.add(member)
         db.session.flush()
 
-        history = MembershipHistory(
-            member_id=member.id,
-            plan_id=plan_id,
-            start_date=join_date,
-            end_date=expiry_date
-        )
+        db.session.add(MembershipHistory(
+            member_id=member.id, plan_id=plan_id,
+            start_date=join_date, end_date=expiry_date
+        ))
 
-        db.session.add(history)
         inserted += 1
 
     db.session.commit()
 
     return jsonify({"inserted": inserted, "skipped": skipped})
+
+
+# -----------------------
+# Silence Chrome DevTools probe
+# -----------------------
+@app.route("/.well-known/appspecific/com.chrome.devtools.json")
+def devtools():
+    return jsonify({}), 200
 
 
 # -----------------------
