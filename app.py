@@ -1,7 +1,8 @@
-from flask import Flask, jsonify, request, render_template, session, redirect, url_for
+from flask import Flask, jsonify, request, render_template, session, redirect
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import csv
 import random
@@ -25,6 +26,14 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 # -----------------------
+# Helper
+# -----------------------
+
+def login_required():
+    return "gym_id" in session
+
+
+# -----------------------
 # Models
 # -----------------------
 
@@ -32,8 +41,8 @@ class Gym(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100))
     email = db.Column(db.String(100), unique=True)
-    password = db.Column(db.String(225))
-    role = db.Column(db.String(20), default="owner")  # admin / owner
+    password = db.Column(db.String(255))
+    role = db.Column(db.String(20), default="gym")  # "admin" or "gym"
 
 
 class Plan(db.Model):
@@ -90,6 +99,8 @@ class MembershipHistory(db.Model):
 @app.route("/")
 def home():
     if "gym_id" in session:
+        if session.get("role") == "admin":
+            return redirect("/admin")
         return redirect("/dashboard")
     return render_template("login.html")
 
@@ -107,7 +118,8 @@ def signup():
         if Gym.query.filter_by(email=email).first():
             return "Email already exists"
 
-        gym = Gym(name=name, email=email, password=password)
+        hashed_password = generate_password_hash(password)
+        gym = Gym(name=name, email=email, password=hashed_password, role="gym")
         db.session.add(gym)
         db.session.commit()
 
@@ -125,13 +137,18 @@ def login():
         email = request.form.get("email")
         password = request.form.get("password")
 
-        gym = Gym.query.filter_by(email=email, password=password).first()
+        gym = Gym.query.filter_by(email=email).first()
 
-        if not gym:
+        if not gym or not check_password_hash(gym.password, password):
             return "Invalid credentials"
 
         session["gym_id"] = gym.id
-        return redirect("/dashboard")
+        session["role"] = gym.role
+
+        if gym.role == "admin":
+            return redirect("/admin")
+        else:
+            return redirect("/dashboard")
 
     return render_template("login.html")
 
@@ -150,9 +167,24 @@ def logout():
 # -----------------------
 @app.route("/dashboard")
 def dashboard():
-    if "gym_id" not in session:
+    if not login_required():
         return redirect("/login")
+
     return render_template("index.html")
+
+
+# -----------------------
+# Admin Dashboard
+# -----------------------
+@app.route("/admin")
+def admin_dashboard():
+    if not login_required():
+        return redirect("/login")
+
+    if session.get("role") != "admin":
+        return "Unauthorized", 403
+
+    return render_template("admin.html")
 
 
 # -----------------------
@@ -160,6 +192,9 @@ def dashboard():
 # -----------------------
 @app.route("/add-member", methods=["POST"])
 def add_member():
+    if not login_required():
+        return jsonify({"error": "Unauthorized"}), 401
+
     try:
         name = request.form.get("name")
         phone = request.form.get("phone")
@@ -168,7 +203,7 @@ def add_member():
         gender = request.form.get("gender")
         address = request.form.get("address")
 
-        gym_id = session.get("gym_id")
+        gym_id = session["gym_id"]
         plan_id = int(request.form.get("plan_id"))
 
         file = request.files.get("photo")
@@ -236,6 +271,7 @@ def add_member():
         })
 
     except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 
@@ -244,6 +280,9 @@ def add_member():
 # -----------------------
 @app.route("/renew-member", methods=["POST"])
 def renew_member():
+    if not login_required():
+        return jsonify({"error": "Unauthorized"}), 401
+
     data = request.get_json()
 
     member_id = data.get("member_id")
@@ -254,6 +293,9 @@ def renew_member():
 
     if not member or not plan:
         return jsonify({"error": "Invalid member or plan"}), 400
+
+    if session.get("role") != "admin" and member.gym_id != session["gym_id"]:
+        return jsonify({"error": "Unauthorized"}), 403
 
     start_date = datetime.today().date()
     end_date = start_date + timedelta(days=plan.duration_days)
@@ -282,6 +324,16 @@ def renew_member():
 # -----------------------
 @app.route("/member-history/<int:member_id>")
 def member_history(member_id):
+    if not login_required():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    member = db.session.get(Member, member_id)
+    if not member:
+        return jsonify({"error": "Member not found"}), 404
+
+    if session.get("role") != "admin" and member.gym_id != session["gym_id"]:
+        return jsonify({"error": "Unauthorized"}), 403
+
     history = MembershipHistory.query.filter_by(member_id=member_id).all()
 
     result = []
@@ -300,10 +352,16 @@ def member_history(member_id):
 # -----------------------
 @app.route("/member/<unique_id>")
 def member_profile(unique_id):
+    if not login_required():
+        return redirect("/login")
+
     member = Member.query.filter_by(unique_id=unique_id).first()
 
     if not member:
         return "Member not found", 404
+
+    if session.get("role") != "admin" and member.gym_id != session["gym_id"]:
+        return "Unauthorized", 403
 
     return render_template("member.html", member=member)
 
@@ -313,7 +371,16 @@ def member_profile(unique_id):
 # -----------------------
 @app.route("/members/<int:gym_id>")
 def get_members(gym_id):
-    members = Member.query.filter_by(gym_id=gym_id).all()
+    if not login_required():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if session.get("role") != "admin" and session["gym_id"] != gym_id:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    if session.get("role") == "admin":
+        members = Member.query.all()
+    else:
+        members = Member.query.filter_by(gym_id=gym_id).all()
 
     result = []
     for m in members:
@@ -337,10 +404,16 @@ def get_members(gym_id):
 # -----------------------
 @app.route("/delete-member/<int:id>", methods=["DELETE"])
 def delete_member(id):
+    if not login_required():
+        return jsonify({"error": "Unauthorized"}), 401
+
     member = db.session.get(Member, id)
 
     if not member:
         return jsonify({"error": "Member not found"}), 404
+
+    if session.get("role") != "admin" and member.gym_id != session["gym_id"]:
+        return jsonify({"error": "Unauthorized"}), 403
 
     db.session.delete(member)
     db.session.commit()
@@ -353,10 +426,16 @@ def delete_member(id):
 # -----------------------
 @app.route("/update-member/<int:id>", methods=["PUT"])
 def update_member(id):
+    if not login_required():
+        return jsonify({"error": "Unauthorized"}), 401
+
     member = db.session.get(Member, id)
 
     if not member:
         return jsonify({"error": "Member not found"}), 404
+
+    if session.get("role") != "admin" and member.gym_id != session["gym_id"]:
+        return jsonify({"error": "Unauthorized"}), 403
 
     data = request.get_json()
 
@@ -386,6 +465,12 @@ def update_member(id):
 # -----------------------
 @app.route("/expiry-alerts/<int:gym_id>")
 def expiry_alerts(gym_id):
+    if not login_required():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if session.get("role") != "admin" and session["gym_id"] != gym_id:
+        return jsonify({"error": "Unauthorized"}), 403
+
     today = datetime.today().date()
     next_3_days = today + timedelta(days=3)
 
@@ -411,8 +496,11 @@ def expiry_alerts(gym_id):
 # -----------------------
 @app.route("/upload-csv", methods=["POST"])
 def upload_csv():
+    if not login_required():
+        return jsonify({"error": "Unauthorized"}), 401
+
     file = request.files.get("file")
-    gym_id = session.get("gym_id")
+    gym_id = session["gym_id"]
     plan_id = int(request.form.get("plan_id"))
 
     plan = db.session.get(Plan, plan_id)
