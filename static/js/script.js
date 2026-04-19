@@ -1,4 +1,8 @@
-const GYM_ID = 1;
+// --------------------
+// GYM ID (set in HTML as: <div id="app" data-gym-id="{{ session['gym_id'] }}"></div>)
+// --------------------
+const gymId = document.getElementById("app").dataset.gymId;
+
 
 // --------------------
 // ADD MEMBER
@@ -7,8 +11,6 @@ document.getElementById("memberForm").addEventListener("submit", function (e) {
     e.preventDefault();
 
     let formData = new FormData(this);
-
-    formData.append("gym_id", GYM_ID);
     formData.append("plan_id", document.getElementById("plan_id").value);
 
     fetch("/add-member", {
@@ -40,8 +42,11 @@ document.getElementById("memberForm").addEventListener("submit", function (e) {
 // LOAD MEMBERS
 // --------------------
 function loadMembers() {
-    fetch(`/members/${GYM_ID}`)
-    .then(res => res.json())
+    fetch(`/members/${gymId}`)
+    .then(res => {
+        if (!res.ok) throw new Error("Failed to load members");
+        return res.json();
+    })
     .then(data => {
         let table = document.querySelector("#membersTable tbody");
         table.innerHTML = "";
@@ -91,7 +96,7 @@ function loadMembers() {
             table.innerHTML += row;
         });
     })
-    .catch(err => console.error(err));
+    .catch(err => console.error("loadMembers error:", err));
 }
 
 
@@ -104,25 +109,28 @@ function deleteMember(id) {
     fetch(`/delete-member/${id}`, {
         method: "DELETE"
     })
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) throw new Error("Delete failed");
+        return res.json();
+    })
     .then(data => {
         alert(data.message || data.error);
         loadMembers();
         loadAlerts();
     })
-    .catch(err => console.error(err));
+    .catch(err => console.error("deleteMember error:", err));
 }
+
 
 // --------------------
 // EDIT MEMBER
 // --------------------
 function editMember(member) {
-
-    let name = prompt("Name", member.name);
-    let phone = prompt("Phone", member.phone);
-    let email = prompt("Email", member.email);
-    let age = prompt("Age", member.age);
-    let gender = prompt("Gender", member.gender);
+    let name    = prompt("Name", member.name);
+    let phone   = prompt("Phone", member.phone);
+    let email   = prompt("Email", member.email);
+    let age     = prompt("Age", member.age);
+    let gender  = prompt("Gender", member.gender);
     let address = prompt("Address", member.address);
 
     fetch(`/update-member/${member.id}`, {
@@ -139,21 +147,27 @@ function editMember(member) {
             address
         })
     })
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) throw new Error("Update failed");
+        return res.json();
+    })
     .then(data => {
         alert(data.message || data.error);
         loadMembers();
-    });
+    })
+    .catch(err => console.error("editMember error:", err));
 }
-
 
 
 // --------------------
 // LOAD ALERTS
 // --------------------
 function loadAlerts() {
-    fetch(`/expiry-alerts/${GYM_ID}`)
-    .then(res => res.json())
+    fetch(`/expiry-alerts/${gymId}`)
+    .then(res => {
+        if (!res.ok) throw new Error("Failed to load alerts");
+        return res.json();
+    })
     .then(data => {
         let list = document.getElementById("alertsList");
         list.innerHTML = "";
@@ -166,14 +180,12 @@ function loadAlerts() {
         data.forEach(member => {
             let li = document.createElement("li");
             li.classList.add("alert");
-
             li.innerText =
                 `${member.name} | ${member.phone} | Expiring: ${member.expiry_date}`;
-
             list.appendChild(li);
         });
     })
-    .catch(err => console.error(err));
+    .catch(err => console.error("loadAlerts error:", err));
 }
 
 
@@ -191,14 +203,16 @@ function uploadCSV() {
 
     let formData = new FormData();
     formData.append("file", file);
-    formData.append("gym_id", GYM_ID);
     formData.append("plan_id", document.getElementById("plan_id").value);
 
     fetch("/upload-csv", {
         method: "POST",
         body: formData
     })
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) throw new Error("CSV upload failed");
+        return res.json();
+    })
     .then(data => {
         document.getElementById("csvResult").innerText =
             `✅ Inserted: ${data.inserted}, Skipped: ${data.skipped}`;
@@ -207,7 +221,7 @@ function uploadCSV() {
         loadAlerts();
     })
     .catch(err => {
-        console.error(err);
+        console.error("uploadCSV error:", err);
         document.getElementById("csvResult").innerText = "❌ Upload failed";
     });
 }

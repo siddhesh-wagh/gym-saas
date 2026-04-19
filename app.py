@@ -1,22 +1,25 @@
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
-import csv
+from dotenv import load_dotenv
 import os
+import csv
 import random
 
+load_dotenv()
 app = Flask(__name__)
 
 # -----------------------
 # Config
 # -----------------------
+
+app.secret_key = os.getenv("SECRET_KEY")
+
 UPLOAD_FOLDER = "static/uploads"
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = \
-'postgresql://gym_admin:gym123@localhost:5432/gym_saas'
-
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -29,7 +32,8 @@ class Gym(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100))
     email = db.Column(db.String(100), unique=True)
-    password = db.Column(db.String(100))
+    password = db.Column(db.String(225))
+    role = db.Column(db.String(20), default="owner")  # admin / owner
 
 
 class Plan(db.Model):
@@ -39,7 +43,7 @@ class Plan(db.Model):
 
 
 def generate_member_id():
-    return str(random.randint(1000, 9999))  # safer than 3 digit
+    return str(random.randint(1000, 9999))
 
 
 class Member(db.Model):
@@ -66,7 +70,6 @@ class Member(db.Model):
     gym_id = db.Column(db.Integer, db.ForeignKey('gym.id'))
     plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'))
 
-    # relationship
     history = db.relationship('MembershipHistory', backref='member', lazy=True)
 
 
@@ -86,6 +89,69 @@ class MembershipHistory(db.Model):
 
 @app.route("/")
 def home():
+    if "gym_id" in session:
+        return redirect("/dashboard")
+    return render_template("login.html")
+
+
+# -----------------------
+# Signup
+# -----------------------
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        name = request.form.get("name")
+        email = request.form.get("email")
+        password = request.form.get("password")
+
+        if Gym.query.filter_by(email=email).first():
+            return "Email already exists"
+
+        gym = Gym(name=name, email=email, password=password)
+        db.session.add(gym)
+        db.session.commit()
+
+        return redirect("/login")
+
+    return render_template("signup.html")
+
+
+# -----------------------
+# Login
+# -----------------------
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = request.form.get("email")
+        password = request.form.get("password")
+
+        gym = Gym.query.filter_by(email=email, password=password).first()
+
+        if not gym:
+            return "Invalid credentials"
+
+        session["gym_id"] = gym.id
+        return redirect("/dashboard")
+
+    return render_template("login.html")
+
+
+# -----------------------
+# Logout
+# -----------------------
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+
+# -----------------------
+# Dashboard
+# -----------------------
+@app.route("/dashboard")
+def dashboard():
+    if "gym_id" not in session:
+        return redirect("/login")
     return render_template("index.html")
 
 
@@ -102,28 +168,24 @@ def add_member():
         gender = request.form.get("gender")
         address = request.form.get("address")
 
-        gym_id = int(request.form.get("gym_id"))
+        gym_id = session.get("gym_id")
         plan_id = int(request.form.get("plan_id"))
 
         file = request.files.get("photo")
 
-        # Validation
         if not name or not phone:
             return jsonify({"error": "Name and phone required"}), 400
 
-        # Duplicate checks
         if Member.query.filter_by(phone=phone, gym_id=gym_id).first():
             return jsonify({"error": "Phone already exists"}), 400
 
         if email and Member.query.filter_by(email=email, gym_id=gym_id).first():
             return jsonify({"error": "Email already exists"}), 400
 
-        # Plan check
         plan = db.session.get(Plan, plan_id)
         if not plan:
             return jsonify({"error": "Invalid plan"}), 400
 
-        # Save photo
         photo_path = None
         if file and file.filename != "":
             filename = f"{phone}.jpg"
@@ -131,17 +193,14 @@ def add_member():
             file.save(filepath)
             photo_path = "/" + filepath.replace("\\", "/")
 
-        # Dates
         join_date = datetime.today().date()
         expiry_date = join_date + timedelta(days=plan.duration_days)
 
-        # Unique ID
         while True:
             unique_id = generate_member_id()
             if not Member.query.filter_by(unique_id=unique_id).first():
                 break
 
-        # Create member
         new_member = Member(
             unique_id=unique_id,
             name=name,
@@ -160,7 +219,6 @@ def add_member():
         db.session.add(new_member)
         db.session.flush()
 
-        # Save history
         history = MembershipHistory(
             member_id=new_member.id,
             plan_id=plan_id,
@@ -191,8 +249,8 @@ def renew_member():
     member_id = data.get("member_id")
     plan_id = data.get("plan_id")
 
-    member = Member.query.get(member_id)
-    plan = Plan.query.get(plan_id)
+    member = db.session.get(Member, member_id)
+    plan = db.session.get(Plan, plan_id)
 
     if not member or not plan:
         return jsonify({"error": "Invalid member or plan"}), 400
@@ -273,6 +331,7 @@ def get_members(gym_id):
 
     return jsonify(result)
 
+
 # -----------------------
 # Delete Member
 # -----------------------
@@ -287,6 +346,7 @@ def delete_member(id):
     db.session.commit()
 
     return jsonify({"message": "Member deleted"})
+
 
 # -----------------------
 # Update Member
@@ -304,7 +364,6 @@ def update_member(id):
     member.phone = data.get("phone", member.phone)
     member.email = data.get("email", member.email)
 
-    # ✅ FIX: safe integer handling
     age = data.get("age", member.age)
     if age == "" or age is None or age == "null":
         member.age = None
@@ -348,12 +407,12 @@ def expiry_alerts(gym_id):
 
 
 # -----------------------
-# CSV Upload (FIXED)
+# CSV Upload
 # -----------------------
 @app.route("/upload-csv", methods=["POST"])
 def upload_csv():
     file = request.files.get("file")
-    gym_id = int(request.form.get("gym_id"))
+    gym_id = session.get("gym_id")
     plan_id = int(request.form.get("plan_id"))
 
     plan = db.session.get(Plan, plan_id)
@@ -372,13 +431,11 @@ def upload_csv():
         phone = row.get("phone")
         email = row.get("email")
 
-        # duplicate checks
         if Member.query.filter_by(phone=phone, gym_id=gym_id).first() or \
            (email and Member.query.filter_by(email=email, gym_id=gym_id).first()):
             skipped += 1
             continue
 
-        # unique ID
         while True:
             unique_id = generate_member_id()
             if not Member.query.filter_by(unique_id=unique_id).first():
@@ -406,7 +463,6 @@ def upload_csv():
         )
 
         db.session.add(history)
-
         inserted += 1
 
     db.session.commit()
