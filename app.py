@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+from sqlalchemy import func
 import os
 import csv
 import random
@@ -116,7 +117,13 @@ class Member(db.Model):
     gym_id  = db.Column(db.Integer, db.ForeignKey('gym.id'))
     plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'))
 
-    history = db.relationship('MembershipHistory', backref='member', lazy=True)
+    history = db.relationship(
+    'MembershipHistory',
+    backref='member',
+    lazy=True,
+    cascade="all, delete-orphan"
+)
+
 
 
 class MembershipHistory(db.Model):
@@ -146,7 +153,7 @@ def signup():
     if request.method == "POST":
         name     = request.form.get("name", "").strip()
         email    = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
+        password = request.form.get("password", "").strip()
 
         if not name or not email or not password:
             return render_template("signup.html", error="All fields are required")
@@ -171,29 +178,35 @@ def signup():
 def login():
     if request.method == "POST":
         email    = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
+        password = request.form.get("password", "").strip()
 
         gym = Gym.query.filter_by(email=email).first()
 
-        # Always show same error — no info leak about whether account exists
+        # Minimal safe logging (no sensitive data)
+        print(f"Login attempt for: {email}")
+
+        # Authentication check
         if not gym or not check_password_hash(gym.password, password):
             return render_template("login.html", error="Invalid email or password")
 
-        # Extra guard: admin email whitelist
-        if gym.role == "admin" and gym.email not in ADMIN_EMAILS:
-            return render_template("login.html", error="Invalid email or password")
+        # Optional: Admin whitelist (keep commented if not needed)
+        # if gym.role == "admin":
+        #     if gym.email not in ADMIN_EMAILS:
+        #         return render_template("login.html", error="Invalid email or password")
 
         # Block disabled gym owners
         if gym.role == "gym" and not gym.is_active:
             return render_template("login.html", error="Your account has been disabled. Contact support.")
 
+        # Set session
         session["gym_id"] = gym.id
         session["role"]   = gym.role
+
+        print(f"Login success: {gym.role}")
 
         return redirect("/admin" if gym.role == "admin" else "/dashboard")
 
     return render_template("login.html")
-
 
 # -----------------------
 # Logout
@@ -220,25 +233,37 @@ def dashboard():
 @login_required
 @role_required("admin")
 def admin_dashboard():
-    gyms          = Gym.query.filter_by(role="gym").order_by(Gym.created_at.desc()).all()
-    total_gyms    = len(gyms)
-    total_members = Member.query.count()
-    active_today  = Member.query.filter(Member.expiry_date >= datetime.today().date()).count()
+    # Get all gym owners
+    gyms = Gym.query.filter_by(role="gym").order_by(Gym.created_at.desc()).all()
 
-    # Attach member count to each gym object for the template
+    # Stats
+    total_gyms = len(gyms)
+    total_members = Member.query.count()
+    active_today = Member.query.filter(
+        Member.expiry_date >= datetime.today().date()
+    ).count()
+
+    # Optimized member counts (NO N+1)
+    member_counts = dict(
+        db.session.query(Member.gym_id, func.count(Member.id))
+        .group_by(Member.gym_id)
+        .all()
+    )
+
+    # Prepare data for UI
     gym_data = []
     for g in gyms:
-        count = Member.query.filter_by(gym_id=g.id).count()
         gym_data.append({
-            "id":         g.id,
-            "name":       g.name,
-            "email":      g.email,
-            "is_active":  g.is_active,
+            "id": g.id,
+            "name": g.name,
+            "email": g.email,
+            "is_active": g.is_active,
             "created_at": g.created_at.strftime("%d %b %Y") if g.created_at else "—",
-            "members":    count
+            "members": member_counts.get(g.id, 0)
         })
 
-    return render_template("admin.html",
+    return render_template(
+        "admin.html",
         total_gyms=total_gyms,
         total_members=total_members,
         active_today=active_today,
@@ -253,17 +278,23 @@ def admin_dashboard():
 @login_required
 @role_required("admin")
 def toggle_gym(gym_id):
-    gym = db.session.get(Gym, gym_id)
-    if not gym or gym.role == "admin":
-        return jsonify({"error": "Gym not found"}), 404
+    try:
+        gym = db.session.get(Gym, gym_id)
 
-    gym.is_active = not gym.is_active
-    db.session.commit()
+        if not gym or gym.role == "admin":
+            return jsonify({"error": "Gym not found"}), 404
 
-    return jsonify({
-        "message":   "Gym updated",
-        "is_active": gym.is_active
-    })
+        gym.is_active = not gym.is_active
+        db.session.commit()
+
+        return jsonify({
+            "message": f"Gym {'enabled' if gym.is_active else 'disabled'}",
+            "is_active": gym.is_active
+        })
+
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Something went wrong"}), 500
 
 
 # -----------------------
@@ -273,20 +304,27 @@ def toggle_gym(gym_id):
 @login_required
 @role_required("admin")
 def delete_gym(gym_id):
-    gym = db.session.get(Gym, gym_id)
-    if not gym or gym.role == "admin":
-        return jsonify({"error": "Gym not found"}), 404
+    try:
+        gym = db.session.get(Gym, gym_id)
 
-    # Delete members and history first
-    members = Member.query.filter_by(gym_id=gym_id).all()
-    for m in members:
-        MembershipHistory.query.filter_by(member_id=m.id).delete()
-    Member.query.filter_by(gym_id=gym_id).delete()
+        if not gym or gym.role == "admin":
+            return jsonify({"error": "Gym not found"}), 404
 
-    db.session.delete(gym)
-    db.session.commit()
+        # Prevent deleting yourself
+        if gym.id == session["gym_id"]:
+            return jsonify({"error": "Cannot delete yourself"}), 400
 
-    return jsonify({"message": "Gym deleted"})
+        # Delete members (history should cascade if configured)
+        Member.query.filter_by(gym_id=gym_id).delete()
+
+        db.session.delete(gym)
+        db.session.commit()
+
+        return jsonify({"message": "Gym deleted successfully"})
+
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Delete failed"}), 500
 
 
 # -----------------------
@@ -609,13 +647,6 @@ def upload_csv():
     db.session.commit()
 
     return jsonify({"inserted": inserted, "skipped": skipped})
-
-@app.route("/force-admin")
-def force_admin():
-    session["gym_id"] = 2
-    session["role"] = "admin"
-    return redirect("/admin")
-
 
 # -----------------------
 # Silence Chrome DevTools probe
