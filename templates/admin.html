@@ -1,318 +1,234 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <title>Admin Dashboard</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: "Segoe UI", Tahoma, sans-serif;
-      background: #f0f2f5;
-      color: #222;
-      min-height: 100vh;
-    }
-
-    /* ── TOPBAR ── */
-    .topbar {
-      background: linear-gradient(135deg, #1e1b4b, #3730a3);
-      color: white;
-      padding: 14px 30px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .topbar h1 { font-size: 1.2em; letter-spacing: 0.5px; }
-
-    .topbar a {
-      color: white;
-      background: rgba(255,255,255,0.15);
-      padding: 7px 14px;
-      border-radius: 8px;
-      text-decoration: none;
-      font-size: 14px;
-      transition: background 0.2s;
-    }
-
-    .topbar a:hover { background: rgba(255,255,255,0.28); }
-
-    /* ── CONTAINER ── */
-    .container {
-      max-width: 1100px;
-      margin: 30px auto;
-      padding: 0 20px;
-    }
-
-    /* ── STAT CARDS ── */
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 18px;
-      margin-bottom: 30px;
-    }
-
-    .stat-card {
-      background: white;
-      border-radius: 14px;
-      padding: 22px 24px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .stat-card .label {
-      font-size: 13px;
-      color: #666;
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .stat-card .value {
-      font-size: 2em;
-      font-weight: 700;
-      color: #1e1b4b;
-    }
-
-    .stat-card .icon {
-      font-size: 1.6em;
-      margin-bottom: 4px;
-    }
-
-    /* ── SECTION HEADING ── */
-    .section-title {
-      font-size: 1.1em;
-      font-weight: 700;
-      color: #1e1b4b;
-      margin-bottom: 14px;
-    }
-
-    /* ── TABLE CARD ── */
-    .card {
-      background: white;
-      border-radius: 14px;
-      padding: 24px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-      margin-bottom: 30px;
-      overflow-x: auto;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }
-
-    thead tr {
-      background: #f5f3ff;
-    }
-
-    th {
-      padding: 11px 14px;
-      text-align: left;
-      color: #4338ca;
-      font-weight: 600;
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
-    }
-
-    td {
-      padding: 12px 14px;
-      border-bottom: 1px solid #f3f4f6;
-      vertical-align: middle;
-    }
-
-    tr:last-child td { border-bottom: none; }
-
-    tr:hover td { background: #fafafe; }
-
-    /* ── BADGES ── */
-    .badge {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    .badge.active   { background: #dcfce7; color: #16a34a; }
-    .badge.disabled { background: #fee2e2; color: #dc2626; }
-
-    /* ── ACTION BUTTONS ── */
-    .btn {
-      display: inline-block;
-      padding: 6px 12px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 600;
-      border: none;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .btn:hover { transform: translateY(-1px); }
-
-    .btn-toggle  { background: #fef9c3; color: #854d0e; }
-    .btn-delete  { background: #fee2e2; color: #dc2626; }
-    .btn-view    { background: #ede9fe; color: #6d28d9; }
-
-    /* ── EMPTY STATE ── */
-    .empty {
-      text-align: center;
-      padding: 40px 0;
-      color: #aaa;
-      font-size: 15px;
-    }
-
-    /* ── RESPONSIVE ── */
-    @media (max-width: 600px) {
-      .topbar { flex-direction: column; gap: 10px; text-align: center; }
-      .stats  { grid-template-columns: 1fr 1fr; }
-    }
-  </style>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Admin — GymSaaS</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
-
 <body>
 
-  <!-- TOPBAR -->
-  <div class="topbar">
-    <h1>🛡️ Admin Control Panel</h1>
-    <a href="/logout">Logout</a>
-  </div>
+<div class="topbar">
+    <span class="topbar-brand">🛡️ Admin Panel</span>
+    <div class="topbar-right">
+        <a href="/logout" class="logout-link">Logout</a>
+    </div>
+</div>
 
-  <div class="container">
+<div class="container">
 
-    <!-- STATS -->
-    <div class="stats">
-      <div class="stat-card">
-        <div class="icon">🏢</div>
-        <div class="label">Total Gyms</div>
-        <div class="value">{{ total_gyms }}</div>
-      </div>
-
-      <div class="stat-card">
-        <div class="icon">👥</div>
-        <div class="label">Total Members</div>
-        <div class="value">{{ total_members }}</div>
-      </div>
-
-      <div class="stat-card">
-        <div class="icon">✅</div>
-        <div class="label">Active Memberships</div>
-        <div class="value">{{ active_today }}</div>
-      </div>
+    <!-- STAT CARDS -->
+    <div class="stats-grid">
+        <div class="stat-card accent-blue">
+            <div class="stat-icon">🏢</div>
+            <div class="stat-label">Total Gyms</div>
+            <div class="stat-value">{{ total_gyms }}</div>
+        </div>
+        <div class="stat-card accent-green">
+            <div class="stat-icon">👥</div>
+            <div class="stat-label">Total Members</div>
+            <div class="stat-value">{{ total_members }}</div>
+        </div>
+        <div class="stat-card accent-amber">
+            <div class="stat-icon">✅</div>
+            <div class="stat-label">Active Memberships</div>
+            <div class="stat-value">{{ active_today }}</div>
+        </div>
     </div>
 
     <!-- GYMS TABLE -->
     <div class="card">
-      <div class="section-title">🏢 All Gyms</div>
+        <div class="section-header">
+            <div class="card-title">🏢 Registered Gyms</div>
+            <input type="text" id="gymSearch" placeholder="🔍 Search gym…"
+                   oninput="filterGyms()" style="width:210px;" />
+        </div>
 
-      {% if gym_data %}
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Gym Name</th>
-            <th>Email</th>
-            <th>Members</th>
-            <th>Joined</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="gymTableBody">
-          {% for g in gym_data %}
-          <tr id="gym-row-{{ g.id }}">
-            <td>{{ loop.index }}</td>
-            <td><strong>{{ g.name }}</strong></td>
-            <td>{{ g.email }}</td>
-            <td>{{ g.members }}</td>
-            <td>{{ g.created_at }}</td>
-            <td>
-              <span class="badge {{ 'active' if g.is_active else 'disabled' }}"
-                    id="badge-{{ g.id }}">
-                {{ "Active" if g.is_active else "Disabled" }}
-              </span>
-            </td>
-            <td style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button class="btn btn-toggle"
-                      onclick="toggleGym({{ g.id }}, this)">
-                {{ "Disable" if g.is_active else "Enable" }}
-              </button>
-
-              <button class="btn btn-delete"
-                      onclick="deleteGym({{ g.id }})">
-                Delete
-              </button>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-
-      {% else %}
-        <div class="empty">No gyms registered yet.</div>
-      {% endif %}
+        {% if gym_data %}
+        <div class="table-wrap">
+            <table id="gymTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Gym Name</th>
+                        <th>Email</th>
+                        <th>Members</th>
+                        <th>Subscription</th>
+                        <th>Joined</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for g in gym_data %}
+                    <tr id="gym-row-{{ g.id }}">
+                        <td>{{ loop.index }}</td>
+                        <td><strong>{{ g.name }}</strong></td>
+                        <td style="color:var(--text-2);">{{ g.email }}</td>
+                        <td>{{ g.members }}</td>
+                        <td>
+                            {% if g.subscription_expiry == "—" %}
+                                <span style="color:var(--text-3);">—</span>
+                            {% else %}
+                                <span>{{ g.subscription_expiry }}</span>
+                            {% endif %}
+                        </td>
+                        <td style="color:var(--text-2);">{{ g.created_at }}</td>
+                        <td>
+                            <span class="badge {{ 'badge-active' if g.is_active else 'badge-disabled' }}"
+                                  id="badge-{{ g.id }}">
+                                {{ "Active" if g.is_active else "Disabled" }}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="td-actions">
+                                <button class="btn btn-sm btn-ghost"
+                                        onclick="viewMembers({{ g.id }})">
+                                    👁 Members
+                                </button>
+                                <button class="btn btn-sm btn-warning"
+                                        onclick="toggleGym({{ g.id }}, this)"
+                                        id="toggle-btn-{{ g.id }}">
+                                    {{ "Disable" if g.is_active else "Enable" }}
+                                </button>
+                                <button class="btn btn-sm btn-success"
+                                        onclick="openRenew({{ g.id }}, '{{ g.name }}')">
+                                    🔄 Renew
+                                </button>
+                                <button class="btn btn-sm btn-danger"
+                                        onclick="deleteGym({{ g.id }})">
+                                    🗑 Delete
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+            <div style="text-align:center; padding:40px; color:var(--text-3);">
+                No gyms registered yet.
+            </div>
+        {% endif %}
     </div>
 
-  </div><!-- /container -->
+</div>
 
-  <script>
+<!-- RENEW MODAL -->
+<div class="modal-overlay" id="renewModal">
+    <div class="modal">
+        <div class="modal-title">🔄 Renew Subscription</div>
+        <p id="renewGymName" style="color:var(--text-2); font-size:14px; margin-bottom:16px;"></p>
+        <input type="hidden" id="renewGymId" />
+        <div class="form-group">
+            <label>Extend by (days)</label>
+            <select id="renewDays">
+                <option value="30">30 days (1 Month)</option>
+                <option value="90">90 days (3 Months)</option>
+                <option value="180">180 days (6 Months)</option>
+                <option value="365">365 days (1 Year)</option>
+            </select>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeRenew()">Cancel</button>
+            <button class="btn btn-success" onclick="confirmRenew()">Confirm Renewal</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --------------------
+    // SEARCH
+    // --------------------
+    function filterGyms() {
+        const q = document.getElementById("gymSearch").value.toLowerCase();
+        document.querySelectorAll("#gymTable tbody tr").forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(q) ? "" : "none";
+        });
+    }
+
+    // --------------------
+    // VIEW MEMBERS
+    // --------------------
+    function viewMembers(gymId) {
+        window.location.href = `/admin/gym/${gymId}/members`;
+    }
+
     // --------------------
     // TOGGLE GYM
     // --------------------
     function toggleGym(gymId, btn) {
-      if (!confirm("Change this gym's status?")) return;
+        if (!confirm("Change this gym's status?")) return;
 
-      fetch(`/admin/toggle-gym/${gymId}`, { method: "POST" })
-        .then(res => {
-          if (!res.ok) throw new Error("Request failed");
-          return res.json();
-        })
-        .then(data => {
-          const badge = document.getElementById(`badge-${gymId}`);
-          if (data.is_active) {
-            badge.textContent = "Active";
-            badge.className   = "badge active";
-            btn.textContent   = "Disable";
-          } else {
-            badge.textContent = "Disabled";
-            badge.className   = "badge disabled";
-            btn.textContent   = "Enable";
-          }
-        })
-        .catch(err => {
-          alert("❌ Failed to update gym status");
-          console.error(err);
-        });
+        fetch(`/admin/toggle-gym/${gymId}`, { method: "POST" })
+            .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+            .then(data => {
+                const badge = document.getElementById(`badge-${gymId}`);
+                if (data.is_active) {
+                    badge.textContent = "Active";
+                    badge.className   = "badge badge-active";
+                    btn.textContent   = "Disable";
+                } else {
+                    badge.textContent = "Disabled";
+                    badge.className   = "badge badge-disabled";
+                    btn.textContent   = "Enable";
+                }
+            })
+            .catch(() => alert("❌ Failed to update gym status"));
     }
+
+    // --------------------
+    // RENEW MODAL
+    // --------------------
+    function openRenew(gymId, gymName) {
+        document.getElementById("renewGymId").value = gymId;
+        document.getElementById("renewGymName").textContent = gymName;
+        document.getElementById("renewModal").classList.add("open");
+    }
+
+    function closeRenew() {
+        document.getElementById("renewModal").classList.remove("open");
+    }
+
+    function confirmRenew() {
+        const gymId = document.getElementById("renewGymId").value;
+        const days  = parseInt(document.getElementById("renewDays").value);
+
+        fetch(`/admin/renew-gym/${gymId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ days })
+        })
+        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(data => {
+            closeRenew();
+            alert(`✅ Renewed until ${data.new_expiry}`);
+            location.reload();
+        })
+        .catch(() => alert("❌ Renewal failed"));
+    }
+
+    document.getElementById("renewModal").addEventListener("click", function(e) {
+        if (e.target === this) closeRenew();
+    });
 
     // --------------------
     // DELETE GYM
     // --------------------
     function deleteGym(gymId) {
-      if (!confirm("⚠️ This will permanently delete the gym AND all its members. Are you sure?")) return;
-      if (!confirm("Last warning — this cannot be undone. Continue?")) return;
+        if (!confirm("⚠️ Delete this gym? This cannot be undone.")) return;
 
-      fetch(`/admin/delete-gym/${gymId}`, { method: "DELETE" })
-        .then(res => {
-          if (!res.ok) throw new Error("Delete failed");
-          return res.json();
-        })
-        .then(() => {
-          const row = document.getElementById(`gym-row-${gymId}`);
-          row.style.transition = "opacity 0.4s";
-          row.style.opacity    = "0";
-          setTimeout(() => row.remove(), 400);
-        })
-        .catch(err => {
-          alert("❌ Failed to delete gym");
-          console.error(err);
-        });
+        fetch(`/admin/delete-gym/${gymId}`, { method: "DELETE" })
+            .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+            .then(() => {
+                const row = document.getElementById(`gym-row-${gymId}`);
+                row.style.transition = "opacity 0.4s";
+                row.style.opacity    = "0";
+                setTimeout(() => row.remove(), 400);
+            })
+            .catch(() => alert("❌ Delete failed"));
     }
-  </script>
-
+</script>
 </body>
 </html>

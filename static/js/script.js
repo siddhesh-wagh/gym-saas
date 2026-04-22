@@ -1,161 +1,182 @@
 // --------------------
-// GYM ID (set in HTML as: <div id="app" data-gym-id="{{ session['gym_id'] }}"></div>)
+// HELPERS
 // --------------------
-const gymId = document.getElementById("app").dataset.gymId;
+function showResult(elId, msg, type) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    el.textContent = msg;
+    el.className   = type; // "success" or "error"
+    el.classList.add("show");
+    setTimeout(() => { el.classList.remove("show"); }, 4000);
+}
+
+function expiryBadge(dateStr) {
+    const today    = new Date(); today.setHours(0,0,0,0);
+    const expiry   = new Date(dateStr);
+    const diffDays = Math.ceil((expiry - today) / 86400000);
+
+    if (diffDays < 0)  return `<span class="badge badge-expired">Expired</span>`;
+    if (diffDays <= 3) return `<span class="badge badge-expiring">Expiring (${diffDays}d)</span>`;
+    return `<span class="badge badge-active">Active</span>`;
+}
+
+
+// --------------------
+// LOAD MEMBERS + STATS
+// --------------------
+function loadMembers() {
+    fetch("/members")
+        .then(res => { if (!res.ok) throw new Error("Failed"); return res.json(); })
+        .then(data => {
+            renderTable(data);
+            updateStats(data);
+        })
+        .catch(err => console.error("loadMembers:", err));
+}
+
+function renderTable(data) {
+    const tbody = document.querySelector("#membersTable tbody");
+    if (!data.length) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--text-3);padding:30px;">No members yet</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = data.map(m => `
+        <tr data-search="${(m.name + m.phone).toLowerCase()}">
+            <td>${m.unique_id || ""}</td>
+            <td>
+                <a href="/member/${m.unique_id}" target="_blank" style="font-weight:600;">
+                    ${m.name || "N/A"}
+                </a>
+            </td>
+            <td>${m.phone || "N/A"}</td>
+            <td style="color:var(--text-2);">${m.email || "—"}</td>
+            <td>${m.age || "—"}</td>
+            <td>${m.gender || "—"}</td>
+            <td>${m.photo ? `<a href="${m.photo}" target="_blank" style="font-size:12px;">View</a>` : "—"}</td>
+            <td>${m.expiry_date || "—"}</td>
+            <td>${expiryBadge(m.expiry_date)}</td>
+            <td>
+                <div class="td-actions">
+                    <button class="btn btn-sm" onclick='openEdit(${JSON.stringify(m)})'>✏️ Edit</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteMember(${m.id})">🗑</button>
+                </div>
+            </td>
+        </tr>
+    `).join("");
+}
+
+function updateStats(data) {
+    const today    = new Date(); today.setHours(0,0,0,0);
+    const active   = data.filter(m => new Date(m.expiry_date) >= today).length;
+    const expiring = data.filter(m => {
+        const d = new Date(m.expiry_date);
+        const diff = Math.ceil((d - today) / 86400000);
+        return diff >= 0 && diff <= 3;
+    }).length;
+
+    const elTotal    = document.getElementById("statTotal");
+    const elActive   = document.getElementById("statActive");
+    const elExpiring = document.getElementById("statExpiring");
+
+    if (elTotal)    elTotal.textContent    = data.length;
+    if (elActive)   elActive.textContent   = active;
+    if (elExpiring) elExpiring.textContent = expiring;
+}
+
+
+// --------------------
+// SEARCH / FILTER TABLE
+// --------------------
+function filterTable() {
+    const q = document.getElementById("searchInput").value.toLowerCase();
+    document.querySelectorAll("#membersTable tbody tr").forEach(row => {
+        const s = row.dataset.search || row.innerText.toLowerCase();
+        row.style.display = s.includes(q) ? "" : "none";
+    });
+}
 
 
 // --------------------
 // ADD MEMBER
 // --------------------
-document.getElementById("memberForm").addEventListener("submit", function (e) {
+document.getElementById("memberForm").addEventListener("submit", function(e) {
     e.preventDefault();
 
-    let formData = new FormData(this);
-    formData.append("plan_id", document.getElementById("plan_id").value);
+    const btn = this.querySelector("button[type='submit']");
+    btn.textContent = "Adding…";
+    btn.disabled    = true;
 
-    fetch("/add-member", {
-        method: "POST",
-        body: formData
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.error) {
-            document.getElementById("result").innerText = "❌ " + data.error;
-        } else {
-            document.getElementById("result").innerText =
-                `✅ ID: ${data.member_id} | Expiry: ${data.expiry_date}`;
-
-            document.getElementById("memberForm").reset();
-
-            loadMembers();
-            loadAlerts();
-        }
-    })
-    .catch(err => {
-        console.error(err);
-        document.getElementById("result").innerText = "❌ Server error";
-    });
+    fetch("/add-member", { method: "POST", body: new FormData(this) })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                showResult("result", "❌ " + data.error, "error");
+            } else {
+                showResult("result", `✅ Added! ID: ${data.member_id} | Expiry: ${data.expiry_date}`, "success");
+                this.reset();
+                loadMembers();
+                loadAlerts();
+            }
+        })
+        .catch(() => showResult("result", "❌ Server error", "error"))
+        .finally(() => { btn.textContent = "Add Member"; btn.disabled = false; });
 });
-
-
-// --------------------
-// LOAD MEMBERS
-// --------------------
-function loadMembers() {
-    fetch(`/members`)
-    .then(res => {
-        if (!res.ok) throw new Error("Failed to load members");
-        return res.json();
-    })
-    .then(data => {
-        let table = document.querySelector("#membersTable tbody");
-        table.innerHTML = "";
-
-        if (!data.length) {
-            table.innerHTML = "<tr><td colspan='9'>No members found</td></tr>";
-            return;
-        }
-
-        data.forEach(member => {
-            let row = `
-                <tr>
-                    <td>${member.unique_id || ""}</td>
-
-                    <td>
-                        <a href="/member/${member.unique_id}" target="_blank">
-                            ${member.name || "N/A"}
-                        </a>
-                    </td>
-
-                    <td>${member.phone || "N/A"}</td>
-                    <td>${member.email || "N/A"}</td>
-                    <td>${member.age || "-"}</td>
-                    <td>${member.gender || "-"}</td>
-
-                    <td>
-                        ${member.photo
-                            ? `<a href="${member.photo}" target="_blank">View</a>`
-                            : "No Photo"}
-                    </td>
-
-                    <td>${member.expiry_date || "-"}</td>
-
-                    <td>
-                        <button onclick='editMember(${JSON.stringify(member)})'>
-                            Edit
-                        </button>
-
-                        <button onclick="deleteMember(${member.id})"
-                            style="background:red;color:white;">
-                            Delete
-                        </button>
-                    </td>
-                </tr>
-            `;
-
-            table.innerHTML += row;
-        });
-    })
-    .catch(err => console.error("loadMembers error:", err));
-}
 
 
 // --------------------
 // DELETE MEMBER
 // --------------------
 function deleteMember(id) {
-    if (!confirm("Are you sure you want to delete this member?")) return;
+    if (!confirm("Delete this member?")) return;
 
-    fetch(`/delete-member/${id}`, {
-        method: "DELETE"
-    })
-    .then(res => {
-        if (!res.ok) throw new Error("Delete failed");
-        return res.json();
-    })
-    .then(data => {
-        alert(data.message || data.error);
-        loadMembers();
-        loadAlerts();
-    })
-    .catch(err => console.error("deleteMember error:", err));
+    fetch(`/delete-member/${id}`, { method: "DELETE" })
+        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(() => { loadMembers(); loadAlerts(); })
+        .catch(() => alert("❌ Delete failed"));
 }
 
 
 // --------------------
-// EDIT MEMBER
+// EDIT MODAL
 // --------------------
-function editMember(member) {
-    let name    = prompt("Name", member.name);
-    let phone   = prompt("Phone", member.phone);
-    let email   = prompt("Email", member.email);
-    let age     = prompt("Age", member.age);
-    let gender  = prompt("Gender", member.gender);
-    let address = prompt("Address", member.address);
+function openEdit(member) {
+    document.getElementById("editId").value      = member.id;
+    document.getElementById("editName").value    = member.name    || "";
+    document.getElementById("editPhone").value   = member.phone   || "";
+    document.getElementById("editEmail").value   = member.email   || "";
+    document.getElementById("editAge").value     = member.age     || "";
+    document.getElementById("editGender").value  = member.gender  || "";
+    document.getElementById("editAddress").value = member.address || "";
+    document.getElementById("editModal").classList.add("open");
+}
 
-    fetch(`/update-member/${member.id}`, {
+function closeEdit() {
+    document.getElementById("editModal").classList.remove("open");
+}
+
+document.getElementById("editModal").addEventListener("click", function(e) {
+    if (e.target === this) closeEdit();
+});
+
+function saveEdit() {
+    const id = document.getElementById("editId").value;
+
+    fetch(`/update-member/${id}`, {
         method: "PUT",
-        headers: {
-            "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-            name,
-            phone,
-            email,
-            age: age ? parseInt(age) : null,
-            gender,
-            address
+            name:    document.getElementById("editName").value,
+            phone:   document.getElementById("editPhone").value,
+            email:   document.getElementById("editEmail").value,
+            age:     document.getElementById("editAge").value || null,
+            gender:  document.getElementById("editGender").value,
+            address: document.getElementById("editAddress").value,
         })
     })
-    .then(res => {
-        if (!res.ok) throw new Error("Update failed");
-        return res.json();
-    })
-    .then(data => {
-        alert(data.message || data.error);
-        loadMembers();
-    })
-    .catch(err => console.error("editMember error:", err));
+    .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+    .then(() => { closeEdit(); loadMembers(); })
+    .catch(() => alert("❌ Update failed"));
 }
 
 
@@ -163,29 +184,24 @@ function editMember(member) {
 // LOAD ALERTS
 // --------------------
 function loadAlerts() {
-    fetch(`/expiry-alerts`)
-    .then(res => {
-        if (!res.ok) throw new Error("Failed to load alerts");
-        return res.json();
-    })
-    .then(data => {
-        let list = document.getElementById("alertsList");
-        list.innerHTML = "";
+    fetch("/expiry-alerts")
+        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(data => {
+            const card = document.getElementById("alertsCard");
+            const list = document.getElementById("alertsList");
+            if (!list) return;
 
-        if (!data.length) {
-            list.innerHTML = "<li>No expiring members</li>";
-            return;
-        }
+            if (!data.length) {
+                if (card) card.style.display = "none";
+                return;
+            }
 
-        data.forEach(member => {
-            let li = document.createElement("li");
-            li.classList.add("alert");
-            li.innerText =
-                `${member.name} | ${member.phone} | Expiring: ${member.expiry_date}`;
-            list.appendChild(li);
-        });
-    })
-    .catch(err => console.error("loadAlerts error:", err));
+            if (card) card.style.display = "block";
+            list.innerHTML = data.map(m =>
+                `<li>⚠️ <strong>${m.name}</strong> — ${m.phone} — Expires: ${m.expiry_date}</li>`
+            ).join("");
+        })
+        .catch(err => console.error("loadAlerts:", err));
 }
 
 
@@ -193,44 +209,33 @@ function loadAlerts() {
 // CSV UPLOAD
 // --------------------
 function uploadCSV() {
-    let fileInput = document.getElementById("csvFile");
-    let file = fileInput.files[0];
+    const fileInput = document.getElementById("csvFile");
+    if (!fileInput.files[0]) { alert("Select a CSV file first"); return; }
 
-    if (!file) {
-        alert("Select a file first!");
-        return;
-    }
+    const formData = new FormData();
+    formData.append("file",    fileInput.files[0]);
+    formData.append("plan_id", document.getElementById("csvPlanId").value);
 
-    let formData = new FormData();
-    formData.append("file", file);
-    formData.append("plan_id", document.getElementById("plan_id").value);
+    const btn = event.target;
+    btn.textContent = "Uploading…";
+    btn.disabled    = true;
 
-    fetch("/upload-csv", {
-        method: "POST",
-        body: formData
-    })
-    .then(res => {
-        if (!res.ok) throw new Error("CSV upload failed");
-        return res.json();
-    })
-    .then(data => {
-        document.getElementById("csvResult").innerText =
-            `✅ Inserted: ${data.inserted}, Skipped: ${data.skipped}`;
-
-        loadMembers();
-        loadAlerts();
-    })
-    .catch(err => {
-        console.error("uploadCSV error:", err);
-        document.getElementById("csvResult").innerText = "❌ Upload failed";
-    });
+    fetch("/upload-csv", { method: "POST", body: formData })
+        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(data => {
+            showResult("csvResult", `✅ Inserted: ${data.inserted} | Skipped: ${data.skipped}`, "success");
+            loadMembers();
+            loadAlerts();
+        })
+        .catch(() => showResult("csvResult", "❌ Upload failed", "error"))
+        .finally(() => { btn.textContent = "Upload"; btn.disabled = false; });
 }
 
 
 // --------------------
 // AUTO LOAD
 // --------------------
-window.onload = function () {
+window.onload = function() {
     loadMembers();
     loadAlerts();
 };

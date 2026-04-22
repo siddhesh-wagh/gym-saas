@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>{{ gym.name }} Members — Admin</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<div class="topbar">
+    <span class="topbar-brand">🛡️ Admin Panel</span>
+    <div class="topbar-right">
+        <a href="/admin" class="btn btn-ghost btn-sm">← Back</a>
+        <a href="/logout" class="logout-link">Logout</a>
+    </div>
+</div>
+
+<div class="container">
+
+    <div class="card">
+        <div class="section-header">
+            <div>
+                <div class="card-title">🏢 {{ gym.name }}</div>
+                <div style="font-size:13px; color:var(--text-3);">{{ gym.email }}</div>
+            </div>
+            <div class="stats-grid" style="margin:0; gap:12px;">
+                <div class="stat-card accent-blue" style="padding:14px 18px; margin:0;">
+                    <div class="stat-label">Total Members</div>
+                    <div class="stat-value" style="font-size:1.5em;">{{ members|length }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="section-header">
+            <div class="card-title">👥 Members</div>
+            <input type="text" id="searchInput" placeholder="🔍 Search…"
+                   oninput="filterTable()" style="width:210px;" />
+        </div>
+
+        {% if members %}
+        <div class="table-wrap">
+            <table id="membersTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>Email</th>
+                        <th>Age</th>
+                        <th>Gender</th>
+                        <th>Join Date</th>
+                        <th>Expiry</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in members %}
+                    {% set today = namespace(d=None) %}
+                    <tr>
+                        <td>{{ m.unique_id }}</td>
+                        <td>
+                            <a href="/member/{{ m.unique_id }}" target="_blank" style="font-weight:600;">
+                                {{ m.name }}
+                            </a>
+                        </td>
+                        <td>{{ m.phone }}</td>
+                        <td style="color:var(--text-2);">{{ m.email or "—" }}</td>
+                        <td>{{ m.age or "—" }}</td>
+                        <td>{{ m.gender or "—" }}</td>
+                        <td style="color:var(--text-2);">{{ m.join_date }}</td>
+                        <td>{{ m.expiry_date }}</td>
+                        <td>
+                            {% set diff = (m.expiry_date - now).days if m.expiry_date else -1 %}
+                            {% if m.expiry_date < now %}
+                                <span class="badge badge-expired">Expired</span>
+                            {% elif (m.expiry_date - now).days <= 3 %}
+                                <span class="badge badge-expiring">Expiring Soon</span>
+                            {% else %}
+                                <span class="badge badge-active">Active</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+            <div style="text-align:center; padding:40px; color:var(--text-3);">
+                This gym has no members yet.
+            </div>
+        {% endif %}
+    </div>
+
+</div>
+
+<script>
+function filterTable() {
+    const q = document.getElementById("searchInput").value.toLowerCase();
+    document.querySelectorAll("#membersTable tbody tr").forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(q) ? "" : "none";
+    });
+}
+</script>
+</body>
+</html>

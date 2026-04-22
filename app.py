@@ -236,7 +236,6 @@ def login():
         if not gym or not check_password_hash(gym.password, password):
             return render_template("login.html", error="Invalid email or password")
 
-        #it should be disbale for admin to login 
         # if gym.role == "admin" and gym.email not in ADMIN_EMAILS:
         #     return render_template("login.html", error="Invalid email or password")
 
@@ -790,6 +789,22 @@ def upload_csv():
 
     db.session.commit()
     return jsonify({"inserted": inserted, "skipped": skipped})
+
+
+# -----------------------
+# Admin — View Members of a Specific Gym
+# -----------------------
+@app.route("/admin/gym/<int:gym_id>/members")
+@login_required
+@role_required("admin")
+def admin_view_members(gym_id):
+    gym     = db.session.get(Gym, gym_id)
+    if not gym:
+        return "Gym not found", 404
+
+    members = Member.query.filter_by(gym_id=gym_id).all()
+    return render_template("admin_members.html", members=members, gym=gym,
+                           now=datetime.today().date())
 
 
 # -----------------------
