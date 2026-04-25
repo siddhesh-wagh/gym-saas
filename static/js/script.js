@@ -22,19 +22,16 @@ function expiryBadge(dateStr) {
 
 
 // --------------------
-// LOAD PLANS  — populates all plan dropdowns from /plans API
+// LOAD PLANS
 // --------------------
 function loadPlans() {
     fetch("/plans")
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
         .then(plans => {
-            const selectors = ["#plan_id", "#csvPlanId", "#renewPlanId"];
-
-            selectors.forEach(sel => {
+            ["#plan_id", "#csvPlanId", "#renewPlanId"].forEach(sel => {
                 const el = document.querySelector(sel);
                 if (!el) return;
 
-                // Remember previously selected value (if any)
                 const prev = el.value;
                 el.innerHTML = "";
 
@@ -50,7 +47,6 @@ function loadPlans() {
                     el.appendChild(opt);
                 });
 
-                // Restore selection if still valid
                 if (prev && el.querySelector(`option[value="${prev}"]`)) {
                     el.value = prev;
                 }
@@ -92,7 +88,10 @@ function renderTable(data) {
             <td style="color:var(--text-2);">${m.email || "—"}</td>
             <td>${m.age || "—"}</td>
             <td>${m.gender || "—"}</td>
-            <td>${m.photo ? `<a href="${m.photo}" target="_blank" style="font-size:12px;">View</a>` : "—"}</td>
+            <td>${m.photo
+                ? `<a href="${m.photo}" target="_blank"><img src="${m.photo}"
+                    style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--border);" /></a>`
+                : "—"}</td>
             <td>${m.expiry_date || "—"}</td>
             <td>${expiryBadge(m.expiry_date)}</td>
             <td>
@@ -108,19 +107,18 @@ function renderTable(data) {
 function updateStats(data) {
     const today    = new Date(); today.setHours(0,0,0,0);
     const active   = data.filter(m => new Date(m.expiry_date) >= today).length;
+    const expired  = data.filter(m => new Date(m.expiry_date) < today).length;
     const expiring = data.filter(m => {
         const d    = new Date(m.expiry_date);
         const diff = Math.ceil((d - today) / 86400000);
         return diff >= 0 && diff <= 3;
     }).length;
 
-    const elTotal    = document.getElementById("statTotal");
-    const elActive   = document.getElementById("statActive");
-    const elExpiring = document.getElementById("statExpiring");
-
-    if (elTotal)    elTotal.textContent    = data.length;
-    if (elActive)   elActive.textContent   = active;
-    if (elExpiring) elExpiring.textContent = expiring;
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    set("statTotal",    data.length);
+    set("statActive",   active);
+    set("statExpiring", expiring);
+    set("statExpired",  expired);
 }
 
 
@@ -154,10 +152,10 @@ document.getElementById("memberForm").addEventListener("submit", function(e) {
             } else {
                 showResult("result", `✅ Added! ID: ${data.member_id} | Expiry: ${data.expiry_date}`, "success");
                 this.reset();
-                // Reload plans after reset (reset clears the select)
                 loadPlans();
                 loadMembers();
                 loadAlerts();
+                loadLogs();
             }
         })
         .catch(() => showResult("result", "❌ Server error", "error"))
@@ -173,13 +171,13 @@ function deleteMember(id) {
 
     fetch(`/delete-member/${id}`, { method: "DELETE" })
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-        .then(() => { loadMembers(); loadAlerts(); })
+        .then(() => { loadMembers(); loadAlerts(); loadLogs(); })
         .catch(() => alert("❌ Delete failed"));
 }
 
 
 // --------------------
-// EDIT MODAL
+// EDIT MODAL  — uses multipart FormData (supports photo upload)
 // --------------------
 function openEdit(member) {
     document.getElementById("editId").value      = member.id;
@@ -188,7 +186,25 @@ function openEdit(member) {
     document.getElementById("editEmail").value   = member.email   || "";
     document.getElementById("editAge").value     = member.age     || "";
     document.getElementById("editGender").value  = member.gender  || "";
+    // FIX: address now populated correctly
     document.getElementById("editAddress").value = member.address || "";
+
+    // Clear previous photo file input
+    const photoInput = document.getElementById("editPhoto");
+    if (photoInput) photoInput.value = "";
+
+    // Show current photo thumbnail if exists
+    const wrap = document.getElementById("currentPhotoWrap");
+    const img  = document.getElementById("currentPhotoImg");
+    if (wrap && img) {
+        if (member.photo) {
+            img.src          = member.photo;
+            wrap.style.display = "block";
+        } else {
+            wrap.style.display = "none";
+        }
+    }
+
     document.getElementById("editModal").classList.add("open");
 }
 
@@ -203,21 +219,24 @@ document.getElementById("editModal").addEventListener("click", function(e) {
 function saveEdit() {
     const id = document.getElementById("editId").value;
 
-    fetch(`/update-member/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            name:    document.getElementById("editName").value,
-            phone:   document.getElementById("editPhone").value,
-            email:   document.getElementById("editEmail").value,
-            age:     document.getElementById("editAge").value || null,
-            gender:  document.getElementById("editGender").value,
-            address: document.getElementById("editAddress").value,
-        })
-    })
-    .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-    .then(() => { closeEdit(); loadMembers(); })
-    .catch(() => alert("❌ Update failed"));
+    // Use FormData so photo file upload works
+    const fd = new FormData();
+    fd.append("name",    document.getElementById("editName").value);
+    fd.append("phone",   document.getElementById("editPhone").value);
+    fd.append("email",   document.getElementById("editEmail").value);
+    fd.append("age",     document.getElementById("editAge").value);
+    fd.append("gender",  document.getElementById("editGender").value);
+    fd.append("address", document.getElementById("editAddress").value);
+
+    const photoFile = document.getElementById("editPhoto");
+    if (photoFile && photoFile.files[0]) {
+        fd.append("photo", photoFile.files[0]);
+    }
+
+    fetch(`/update-member/${id}`, { method: "POST", body: fd })
+        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(() => { closeEdit(); loadMembers(); loadLogs(); })
+        .catch(() => alert("❌ Update failed"));
 }
 
 
@@ -247,6 +266,32 @@ function loadAlerts() {
 
 
 // --------------------
+// ACTIVITY LOG (gym owner view)
+// --------------------
+function loadLogs() {
+    const list = document.getElementById("logList");
+    if (!list) return;
+
+    fetch("/my-logs")
+        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(logs => {
+            if (!logs.length) {
+                list.innerHTML = `<div style="text-align:center;color:var(--text-3);padding:20px;">No activity yet</div>`;
+                return;
+            }
+
+            list.innerHTML = logs.map(l => `
+                <div class="log-entry">
+                    <span class="log-action">${l.action}</span>
+                    <span class="log-time">${l.created_at}</span>
+                </div>
+            `).join("");
+        })
+        .catch(err => console.error("loadLogs:", err));
+}
+
+
+// --------------------
 // CSV UPLOAD
 // --------------------
 function uploadCSV() {
@@ -267,6 +312,7 @@ function uploadCSV() {
             showResult("csvResult", `✅ Inserted: ${data.inserted} | Skipped: ${data.skipped}`, "success");
             loadMembers();
             loadAlerts();
+            loadLogs();
         })
         .catch(() => showResult("csvResult", "❌ Upload failed", "error"))
         .finally(() => { btn.textContent = "Upload"; btn.disabled = false; });
@@ -274,10 +320,91 @@ function uploadCSV() {
 
 
 // --------------------
+// EXPORT
+// --------------------
+function exportCSV() {
+    window.location.href = "/export/members/csv";
+}
+
+function exportExcel() {
+    fetch("/export/members/json")
+        .then(res => res.json())
+        .then(data => {
+            if (!data.length) { alert("No members to export"); return; }
+
+            const headers = Object.keys(data[0]);
+            const rows    = data.map(r =>
+                headers.map(h => `"${(r[h] || "").toString().replace(/"/g, '""')}"`).join(",")
+            );
+            const csvContent = [headers.join(","), ...rows].join("\n");
+
+            const blob = new Blob([csvContent], { type: "text/csv" });
+            const a    = document.createElement("a");
+            a.href     = URL.createObjectURL(blob);
+            a.download = "members_export.csv";
+            a.click();
+        })
+        .catch(() => alert("❌ Export failed"));
+}
+
+function exportPDF() {
+    fetch("/export/members/json")
+        .then(res => res.json())
+        .then(data => {
+            if (!data.length) { alert("No members to export"); return; }
+
+            const win  = window.open("", "_blank");
+            const rows = data.map(m => `
+                <tr>
+                    <td>${m.ID}</td>
+                    <td>${m.Name}</td>
+                    <td>${m.Phone}</td>
+                    <td>${m.Email}</td>
+                    <td>${m.Age || "—"}</td>
+                    <td>${m.Gender || "—"}</td>
+                    <td>${m["Join Date"]}</td>
+                    <td>${m.Expiry}</td>
+                </tr>
+            `).join("");
+
+            win.document.write(`
+                <!DOCTYPE html><html><head>
+                <title>Members Report</title>
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
+                    h2   { margin-bottom: 6px; }
+                    p    { color: #666; margin-bottom: 16px; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th   { background: #4f46e5; color: white; padding: 8px 10px; text-align: left; font-size: 11px; }
+                    td   { padding: 7px 10px; border-bottom: 1px solid #eee; }
+                    tr:nth-child(even) td { background: #f9fafb; }
+                    @media print { button { display: none; } }
+                </style>
+                </head><body>
+                <h2>Members Report</h2>
+                <p>Generated: ${new Date().toLocaleString()} &nbsp;|&nbsp; Total: ${data.length}</p>
+                <table>
+                    <thead><tr>
+                        <th>ID</th><th>Name</th><th>Phone</th><th>Email</th>
+                        <th>Age</th><th>Gender</th><th>Join Date</th><th>Expiry</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+                <script>window.onload = () => window.print();<\/script>
+                </body></html>
+            `);
+            win.document.close();
+        })
+        .catch(() => alert("❌ Export failed"));
+}
+
+
+// --------------------
 // AUTO LOAD
 // --------------------
 window.onload = function() {
-    loadPlans();     // fills plan dropdowns from DB
+    loadPlans();
     loadMembers();
     loadAlerts();
+    loadLogs();
 };

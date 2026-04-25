@@ -40,8 +40,13 @@
     <div class="card">
         <div class="section-header">
             <div class="card-title">🏢 Registered Gyms</div>
-            <input type="text" id="gymSearch" placeholder="🔍 Search gym…"
-                   oninput="filterGyms()" style="width:210px;" />
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="gymSearch" placeholder="🔍 Search gym…"
+                       oninput="filterGyms()" style="width:200px;" />
+                <button class="btn btn-sm btn-success" onclick="exportCSV()">⬇ CSV</button>
+                <button class="btn btn-sm btn-warning" onclick="exportExcel()">⬇ Excel</button>
+                <button class="btn btn-sm btn-danger" onclick="exportPDF()">⬇ PDF</button>
+            </div>
         </div>
 
         {% if gym_data %}
@@ -70,7 +75,7 @@
                             {% if g.subscription_expiry == "—" %}
                                 <span style="color:var(--text-3);">—</span>
                             {% else %}
-                                <span>{{ g.subscription_expiry }}</span>
+                                {{ g.subscription_expiry }}
                             {% endif %}
                         </td>
                         <td style="color:var(--text-2);">{{ g.created_at }}</td>
@@ -82,9 +87,11 @@
                         </td>
                         <td>
                             <div class="td-actions">
-                                <button class="btn btn-sm btn-ghost"
-                                        onclick="viewMembers({{ g.id }})">
+                                <button class="btn btn-sm btn-ghost" onclick="viewMembers({{ g.id }})">
                                     👁 Members
+                                </button>
+                                <button class="btn btn-sm btn-ghost" onclick="viewLogs({{ g.id }}, '{{ g.name }}')">
+                                    📋 Logs
                                 </button>
                                 <button class="btn btn-sm btn-warning"
                                         onclick="toggleGym({{ g.id }}, this)"
@@ -95,8 +102,7 @@
                                         onclick="openRenew({{ g.id }}, '{{ g.name }}')">
                                     🔄 Renew
                                 </button>
-                                <button class="btn btn-sm btn-danger"
-                                        onclick="deleteGym({{ g.id }})">
+                                <button class="btn btn-sm btn-danger" onclick="deleteGym({{ g.id }})">
                                     🗑 Delete
                                 </button>
                             </div>
@@ -107,10 +113,24 @@
             </table>
         </div>
         {% else %}
-            <div style="text-align:center; padding:40px; color:var(--text-3);">
-                No gyms registered yet.
-            </div>
+        <div style="text-align:center; padding:40px; color:var(--text-3);">
+            No gyms registered yet.
+        </div>
         {% endif %}
+    </div>
+
+    <!-- ACTIVITY LOG -->
+    <div class="card">
+        <div class="section-header">
+            <div class="card-title" id="logTitle">📋 All Activity Logs</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <button class="btn btn-ghost btn-sm" onclick="loadLogs(null)">Show All</button>
+                <button class="btn btn-ghost btn-sm" onclick="loadLogs(currentLogGymId)">🔄 Refresh</button>
+            </div>
+        </div>
+        <div id="logList" style="max-height:400px; overflow-y:auto;">
+            <div style="text-align:center;color:var(--text-3);padding:20px;">Loading…</div>
+        </div>
     </div>
 
 </div>
@@ -122,113 +142,276 @@
         <p id="renewGymName" style="color:var(--text-2); font-size:14px; margin-bottom:16px;"></p>
         <input type="hidden" id="renewGymId" />
         <div class="form-group">
-            <label>Extend by (days)</label>
+            <label>Extend by</label>
             <select id="renewDays">
-                <option value="30">30 days (1 Month)</option>
-                <option value="90">90 days (3 Months)</option>
-                <option value="180">180 days (6 Months)</option>
-                <option value="365">365 days (1 Year)</option>
+                <option value="30">30 days — 1 Month</option>
+                <option value="90">90 days — 3 Months</option>
+                <option value="180">180 days — 6 Months</option>
+                <option value="365">365 days — 1 Year</option>
             </select>
         </div>
         <div class="modal-footer">
             <button class="btn btn-ghost" onclick="closeRenew()">Cancel</button>
-            <button class="btn btn-success" onclick="confirmRenew()">Confirm Renewal</button>
+            <button class="btn btn-success" onclick="confirmRenew()">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<!-- GYM LOGS MODAL -->
+<div class="modal-overlay" id="logsModal">
+    <div class="modal" style="width:620px; max-height:80vh; display:flex; flex-direction:column;">
+        <div class="modal-title" id="logsModalTitle">📋 Gym Logs</div>
+        <div id="logsModalBody" style="overflow-y:auto; flex:1; margin-bottom:16px;">
+            <div style="text-align:center;color:var(--text-3);padding:20px;">Loading…</div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeLogsModal()">Close</button>
         </div>
     </div>
 </div>
 
 <script>
-    // --------------------
-    // SEARCH
-    // --------------------
-    function filterGyms() {
-        const q = document.getElementById("gymSearch").value.toLowerCase();
-        document.querySelectorAll("#gymTable tbody tr").forEach(row => {
-            row.style.display = row.innerText.toLowerCase().includes(q) ? "" : "none";
-        });
-    }
+let currentLogGymId = null;
 
-    // --------------------
-    // VIEW MEMBERS
-    // --------------------
-    function viewMembers(gymId) {
-        window.location.href = `/admin/gym/${gymId}/members`;
-    }
+// --------------------
+// SEARCH
+// --------------------
+function filterGyms() {
+    const q = document.getElementById("gymSearch").value.toLowerCase();
+    document.querySelectorAll("#gymTable tbody tr").forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(q) ? "" : "none";
+    });
+}
 
-    // --------------------
-    // TOGGLE GYM
-    // --------------------
-    function toggleGym(gymId, btn) {
-        if (!confirm("Change this gym's status?")) return;
+// --------------------
+// VIEW MEMBERS
+// --------------------
+function viewMembers(gymId) {
+    window.location.href = `/admin/gym/${gymId}/members`;
+}
 
-        fetch(`/admin/toggle-gym/${gymId}`, { method: "POST" })
-            .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-            .then(data => {
-                const badge = document.getElementById(`badge-${gymId}`);
-                if (data.is_active) {
-                    badge.textContent = "Active";
-                    badge.className   = "badge badge-active";
-                    btn.textContent   = "Disable";
-                } else {
-                    badge.textContent = "Disabled";
-                    badge.className   = "badge badge-disabled";
-                    btn.textContent   = "Enable";
-                }
-            })
-            .catch(() => alert("❌ Failed to update gym status"));
-    }
+// --------------------
+// TOGGLE GYM
+// --------------------
+function toggleGym(gymId, btn) {
+    if (!confirm("Change this gym's status?")) return;
 
-    // --------------------
-    // RENEW MODAL
-    // --------------------
-    function openRenew(gymId, gymName) {
-        document.getElementById("renewGymId").value = gymId;
-        document.getElementById("renewGymName").textContent = gymName;
-        document.getElementById("renewModal").classList.add("open");
-    }
-
-    function closeRenew() {
-        document.getElementById("renewModal").classList.remove("open");
-    }
-
-    function confirmRenew() {
-        const gymId = document.getElementById("renewGymId").value;
-        const days  = parseInt(document.getElementById("renewDays").value);
-
-        fetch(`/admin/renew-gym/${gymId}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ days })
-        })
+    fetch(`/admin/toggle-gym/${gymId}`, { method: "POST" })
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
         .then(data => {
-            closeRenew();
-            alert(`✅ Renewed until ${data.new_expiry}`);
-            location.reload();
+            const badge = document.getElementById(`badge-${gymId}`);
+            if (data.is_active) {
+                badge.textContent = "Active";
+                badge.className   = "badge badge-active";
+                btn.textContent   = "Disable";
+            } else {
+                badge.textContent = "Disabled";
+                badge.className   = "badge badge-disabled";
+                btn.textContent   = "Enable";
+            }
+            loadLogs(null);
         })
-        .catch(() => alert("❌ Renewal failed"));
-    }
+        .catch(() => alert("❌ Failed to update gym status"));
+}
 
-    document.getElementById("renewModal").addEventListener("click", function(e) {
-        if (e.target === this) closeRenew();
-    });
+// --------------------
+// RENEW MODAL
+// --------------------
+function openRenew(gymId, gymName) {
+    document.getElementById("renewGymId").value = gymId;
+    document.getElementById("renewGymName").textContent = gymName;
+    document.getElementById("renewModal").classList.add("open");
+}
 
-    // --------------------
-    // DELETE GYM
-    // --------------------
-    function deleteGym(gymId) {
-        if (!confirm("⚠️ Delete this gym? This cannot be undone.")) return;
+function closeRenew() {
+    document.getElementById("renewModal").classList.remove("open");
+}
 
-        fetch(`/admin/delete-gym/${gymId}`, { method: "DELETE" })
-            .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-            .then(() => {
-                const row = document.getElementById(`gym-row-${gymId}`);
-                row.style.transition = "opacity 0.4s";
-                row.style.opacity    = "0";
-                setTimeout(() => row.remove(), 400);
-            })
-            .catch(() => alert("❌ Delete failed"));
-    }
+function confirmRenew() {
+    const gymId = document.getElementById("renewGymId").value;
+    const days  = parseInt(document.getElementById("renewDays").value);
+
+    fetch(`/admin/renew-gym/${gymId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ days })
+    })
+    .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+    .then(data => {
+        closeRenew();
+        alert(`✅ Renewed until ${data.new_expiry}`);
+        location.reload();
+    })
+    .catch(() => alert("❌ Renewal failed"));
+}
+
+document.getElementById("renewModal").addEventListener("click", function(e) {
+    if (e.target === this) closeRenew();
+});
+
+// --------------------
+// DELETE GYM
+// --------------------
+function deleteGym(gymId) {
+    if (!confirm("⚠️ Delete this gym and all its members? This cannot be undone.")) return;
+
+    fetch(`/admin/delete-gym/${gymId}`, { method: "DELETE" })
+        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(() => {
+            const row = document.getElementById(`gym-row-${gymId}`);
+            row.style.transition = "opacity 0.4s";
+            row.style.opacity    = "0";
+            setTimeout(() => row.remove(), 400);
+            loadLogs(null);
+        })
+        .catch(() => alert("❌ Delete failed"));
+}
+
+// --------------------
+// ACTIVITY LOGS
+// --------------------
+function loadLogs(gymId) {
+    currentLogGymId = gymId;
+    const title = document.getElementById("logTitle");
+    const list  = document.getElementById("logList");
+
+    const url = gymId ? `/admin/logs?gym_id=${gymId}` : "/admin/logs";
+
+    fetch(url)
+        .then(res => res.json())
+        .then(logs => {
+            if (title) title.textContent = gymId ? `📋 Logs — filtered` : "📋 All Activity Logs";
+
+            if (!logs.length) {
+                list.innerHTML = `<div style="text-align:center;color:var(--text-3);padding:20px;">No logs yet</div>`;
+                return;
+            }
+
+            list.innerHTML = logs.map(l => `
+                <div class="log-entry">
+                    <span class="log-gym">${l.gym_name || "System"}</span>
+                    <span class="log-action">${l.action}</span>
+                    <span class="log-time">${l.created_at}</span>
+                </div>
+            `).join("");
+        })
+        .catch(err => console.error("loadLogs:", err));
+}
+
+// --------------------
+// GYM LOGS MODAL
+// --------------------
+function viewLogs(gymId, gymName) {
+    document.getElementById("logsModalTitle").textContent = `📋 Logs — ${gymName}`;
+    document.getElementById("logsModal").classList.add("open");
+
+    const body = document.getElementById("logsModalBody");
+    body.innerHTML = `<div style="text-align:center;color:var(--text-3);padding:20px;">Loading…</div>`;
+
+    fetch(`/admin/logs?gym_id=${gymId}`)
+        .then(res => res.json())
+        .then(logs => {
+            if (!logs.length) {
+                body.innerHTML = `<div style="text-align:center;color:var(--text-3);padding:20px;">No logs for this gym</div>`;
+                return;
+            }
+
+            body.innerHTML = logs.map(l => `
+                <div class="log-entry">
+                    <span class="log-action">${l.action}</span>
+                    <span class="log-time">${l.created_at}</span>
+                </div>
+            `).join("");
+        });
+}
+
+function closeLogsModal() {
+    document.getElementById("logsModal").classList.remove("open");
+}
+
+document.getElementById("logsModal").addEventListener("click", function(e) {
+    if (e.target === this) closeLogsModal();
+});
+
+// --------------------
+// EXPORT
+// --------------------
+function exportCSV() {
+    window.location.href = "/export/members/csv";
+}
+
+function exportExcel() {
+    fetch("/export/members/json")
+        .then(res => res.json())
+        .then(data => {
+            if (!data.length) { alert("No members to export"); return; }
+
+            const headers = Object.keys(data[0]);
+            const rows    = data.map(r => headers.map(h => `"${(r[h] || "").toString().replace(/"/g, '""')}"`).join(","));
+            const csv     = [headers.join(","), ...rows].join("\n");
+
+            const blob = new Blob([csv], { type: "text/csv" });
+            const a    = document.createElement("a");
+            a.href     = URL.createObjectURL(blob);
+            a.download = "members.xlsx.csv";
+            a.click();
+        })
+        .catch(() => alert("❌ Export failed"));
+}
+
+function exportPDF() {
+    fetch("/export/members/json")
+        .then(res => res.json())
+        .then(data => {
+            if (!data.length) { alert("No members to export"); return; }
+
+            const win = window.open("", "_blank");
+            const rows = data.map(m => `
+                <tr>
+                    <td>${m.ID}</td>
+                    <td>${m.Name}</td>
+                    <td>${m.Phone}</td>
+                    <td>${m.Email}</td>
+                    <td>${m["Join Date"]}</td>
+                    <td>${m.Expiry}</td>
+                    <td>${m.Gym}</td>
+                </tr>
+            `).join("");
+
+            win.document.write(`
+                <!DOCTYPE html><html><head>
+                <title>Members Export</title>
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 20px; }
+                    h2 { margin-bottom: 16px; }
+                    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+                    th { background: #4f46e5; color: white; padding: 8px 10px; text-align: left; }
+                    td { padding: 7px 10px; border-bottom: 1px solid #eee; }
+                    tr:nth-child(even) td { background: #f9fafb; }
+                </style>
+                </head><body>
+                <h2>Members Report — ${new Date().toLocaleDateString()}</h2>
+                <table>
+                    <thead><tr>
+                        <th>ID</th><th>Name</th><th>Phone</th><th>Email</th>
+                        <th>Join Date</th><th>Expiry</th><th>Gym</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+                <script>window.onload=()=>window.print();<\/script>
+                </body></html>
+            `);
+            win.document.close();
+        })
+        .catch(() => alert("❌ Export failed"));
+}
+
+// --------------------
+// INIT
+// --------------------
+window.onload = function() {
+    loadLogs(null);
+};
 </script>
 </body>
 </html>

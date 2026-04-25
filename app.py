@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template, session, redirect
+from flask import Flask, jsonify, request, render_template, session, redirect, Response
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -7,6 +7,7 @@ from functools import wraps
 from sqlalchemy import func
 import os
 import csv
+import io
 import random
 
 load_dotenv()
@@ -69,7 +70,7 @@ def owns_member(member):
 
 
 # -----------------------
-# Multi-Gym Isolation Helpers
+# Isolation Helpers
 # -----------------------
 
 def is_admin():
@@ -82,30 +83,35 @@ def gym_member_filter():
     return Member.gym_id == session["gym_id"]
 
 
-# -----------------------
-# Audit Log Helper
-# -----------------------
-
-def log_action(action, gym_id=None):
-    try:
-        db.session.add(AuditLog(
-            action=action,
-            gym_id=gym_id or session.get("gym_id"),
-            performed_by=session.get("gym_id")
-        ))
-    except Exception:
-        pass
-
-
-# -----------------------
-# Helper: IDs of non-deleted gyms
-# -----------------------
-
 def active_gym_ids():
     return [
         g.id for g in Gym.query.filter_by(role="gym", is_deleted=False)
         .with_entities(Gym.id).all()
     ]
+
+
+# -----------------------
+# Activity Log Helper
+# -----------------------
+
+def log_action(action, gym_id=None, member_name=None):
+    """
+    Log any action. gym_id defaults to session gym.
+    member_name is optional extra context.
+    """
+    try:
+        full_action = action
+        if member_name:
+            full_action = f"{action} — {member_name}"
+
+        db.session.add(ActivityLog(
+            action=full_action,
+            gym_id=gym_id or session.get("gym_id"),
+            performed_by=session.get("gym_id"),
+            created_at=datetime.utcnow()
+        ))
+    except Exception:
+        pass
 
 
 # -----------------------
@@ -177,12 +183,21 @@ class Payment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
-class AuditLog(db.Model):
+class ActivityLog(db.Model):
+    """
+    Unified activity log for both gym owners and admin.
+    gym_id      = which gym the action belongs to (or None for admin actions)
+    performed_by = session gym_id of who did it
+    """
     id           = db.Column(db.Integer, primary_key=True)
-    action       = db.Column(db.String(200))
-    gym_id       = db.Column(db.Integer, nullable=True)
+    action       = db.Column(db.String(300))
+    gym_id       = db.Column(db.Integer, db.ForeignKey('gym.id'), nullable=True)
     performed_by = db.Column(db.Integer, nullable=True)
     created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# Keep AuditLog as alias for backwards compatibility
+AuditLog = ActivityLog
 
 
 # -----------------------
@@ -218,6 +233,8 @@ def signup():
         gym = Gym(name=name, email=email, password=hashed,
                   role="gym", subscription_expiry=trial_expiry)
         db.session.add(gym)
+        db.session.flush()
+        log_action(f"Gym '{name}' signed up", gym_id=gym.id)
         db.session.commit()
         return redirect("/login")
 
@@ -248,8 +265,18 @@ def login():
             if gym.subscription_expiry < datetime.today().date():
                 return render_template("login.html", error="Subscription expired. Please renew.")
 
-        session["gym_id"] = gym.id
-        session["role"]   = gym.role
+        session["gym_id"]   = gym.id
+        session["role"]     = gym.role
+        session["gym_name"] = gym.name
+
+        # Log login
+        db.session.add(ActivityLog(
+            action=f"Logged in",
+            gym_id=gym.id,
+            performed_by=gym.id,
+            created_at=datetime.utcnow()
+        ))
+        db.session.commit()
 
         return redirect("/admin" if gym.role == "admin" else "/dashboard")
 
@@ -261,12 +288,21 @@ def login():
 # -----------------------
 @app.route("/logout")
 def logout():
+    gym_id = session.get("gym_id")
+    if gym_id:
+        db.session.add(ActivityLog(
+            action="Logged out",
+            gym_id=gym_id,
+            performed_by=gym_id,
+            created_at=datetime.utcnow()
+        ))
+        db.session.commit()
     session.clear()
     return redirect("/login")
 
 
 # -----------------------
-# Gym Dashboard  — passes subscription info to template
+# Gym Dashboard
 # -----------------------
 @app.route("/dashboard")
 @login_required
@@ -274,10 +310,9 @@ def dashboard():
     gym   = db.session.get(Gym, session["gym_id"])
     today = datetime.today().date()
 
-    # Subscription status
-    sub_expiry  = gym.subscription_expiry
-    sub_days    = None
-    sub_status  = "none"   # none | ok | warning | expired
+    sub_expiry = gym.subscription_expiry
+    sub_days   = None
+    sub_status = "none"
 
     if sub_expiry:
         diff = (sub_expiry - today).days
@@ -320,14 +355,12 @@ def admin_dashboard():
 
     total_members = (
         db.session.query(func.count(Member.id))
-        .filter(Member.gym_id.in_(gym_ids))
-        .scalar()
+        .filter(Member.gym_id.in_(gym_ids)).scalar()
     ) if gym_ids else 0
 
     active_today = (
         db.session.query(func.count(Member.id))
-        .filter(Member.gym_id.in_(gym_ids), Member.expiry_date >= today)
-        .scalar()
+        .filter(Member.gym_id.in_(gym_ids), Member.expiry_date >= today).scalar()
     ) if gym_ids else 0
 
     gym_data = [{
@@ -358,7 +391,6 @@ def admin_dashboard():
 def admin_stats():
     today   = datetime.today().date()
     gym_ids = active_gym_ids()
-
     return jsonify({
         "total_gyms":      len(gym_ids),
         "active_gyms":     Gym.query.filter_by(role="gym", is_active=True, is_deleted=False).count(),
@@ -381,7 +413,7 @@ def toggle_gym(gym_id):
             return jsonify({"error": "Gym not found"}), 404
 
         gym.is_active = not gym.is_active
-        log_action(f"{'Enabled' if gym.is_active else 'Disabled'} gym {gym.email}", gym_id)
+        log_action(f"Admin {'enabled' if gym.is_active else 'disabled'} gym: {gym.email}", gym_id)
         db.session.commit()
 
         return jsonify({"message": f"Gym {'enabled' if gym.is_active else 'disabled'}",
@@ -412,8 +444,7 @@ def delete_gym(gym_id):
 
         gym.is_deleted = True
         gym.is_active  = False
-
-        log_action(f"Soft-deleted gym {gym.email} and removed {len(members)} members", gym_id)
+        log_action(f"Admin deleted gym: {gym.email} ({len(members)} members removed)", gym_id)
         db.session.commit()
 
         return jsonify({"message": f"Gym deleted ({len(members)} members removed)"})
@@ -442,7 +473,7 @@ def renew_gym_subscription(gym_id):
         gym.subscription_expiry = base + timedelta(days=days)
         gym.is_active = True
 
-        log_action(f"Renewed gym {gym.email} subscription +{days} days", gym_id)
+        log_action(f"Admin renewed gym {gym.email} subscription +{days} days", gym_id)
         db.session.commit()
 
         return jsonify({"message": "Subscription renewed",
@@ -455,23 +486,7 @@ def renew_gym_subscription(gym_id):
 
 
 # -----------------------
-# Admin — Audit Logs
-# -----------------------
-@app.route("/admin/audit-logs")
-@login_required
-@role_required("admin")
-def audit_logs():
-    logs = AuditLog.query.order_by(AuditLog.created_at.desc()).limit(100).all()
-    return jsonify([{
-        "action":       l.action,
-        "gym_id":       l.gym_id,
-        "performed_by": l.performed_by,
-        "created_at":   l.created_at.strftime("%d %b %Y %H:%M")
-    } for l in logs])
-
-
-# -----------------------
-# Admin — View Members of a Specific Gym
+# Admin — View Members of a Gym
 # -----------------------
 @app.route("/admin/gym/<int:gym_id>/members")
 @login_required
@@ -483,6 +498,50 @@ def admin_view_members(gym_id):
 
     members = Member.query.filter_by(gym_id=gym_id).all()
     return render_template("admin_members.html", members=members, gym=gym)
+
+
+# -----------------------
+# Activity Logs — Gym Owner (their own logs)
+# -----------------------
+@app.route("/my-logs")
+@login_required
+def my_logs():
+    gym_id = session["gym_id"]
+    logs = ActivityLog.query\
+        .filter_by(gym_id=gym_id)\
+        .order_by(ActivityLog.created_at.desc())\
+        .limit(200).all()
+
+    return jsonify([{
+        "action":     l.action,
+        "created_at": l.created_at.strftime("%d %b %Y %H:%M:%S")
+    } for l in logs])
+
+
+# -----------------------
+# Activity Logs — Admin (all logs, optionally filtered by gym)
+# -----------------------
+@app.route("/admin/logs")
+@login_required
+@role_required("admin")
+def admin_logs():
+    gym_filter = request.args.get("gym_id", type=int)
+
+    q = ActivityLog.query.order_by(ActivityLog.created_at.desc())
+    if gym_filter:
+        q = q.filter_by(gym_id=gym_filter)
+
+    logs = q.limit(500).all()
+
+    # Build gym name map for display
+    gym_names = {g.id: g.name for g in Gym.query.all()}
+
+    return jsonify([{
+        "action":     l.action,
+        "gym_id":     l.gym_id,
+        "gym_name":   gym_names.get(l.gym_id, "—"),
+        "created_at": l.created_at.strftime("%d %b %Y %H:%M:%S")
+    } for l in logs])
 
 
 # -----------------------
@@ -519,7 +578,7 @@ def add_plan():
 
     plan = Plan(name=name, duration_days=duration_days)
     db.session.add(plan)
-    log_action(f"Created plan '{name}' ({duration_days} days)")
+    log_action(f"Admin created plan '{name}' ({duration_days} days)")
     db.session.commit()
 
     return jsonify({"message": "Plan created", "id": plan.id})
@@ -537,7 +596,7 @@ def delete_plan(plan_id):
         return jsonify({"error": "Plan not found"}), 404
 
     plan.is_active = False
-    log_action(f"Deactivated plan '{plan.name}'")
+    log_action(f"Admin deactivated plan '{plan.name}'")
     db.session.commit()
 
     return jsonify({"message": "Plan deactivated"})
@@ -607,6 +666,8 @@ def add_member():
             member_id=new_member.id, plan_id=plan_id,
             start_date=join_date, end_date=expiry_date
         ))
+
+        log_action(f"Added member: {name} ({phone})", member_name=None)
         db.session.commit()
 
         return jsonify({
@@ -653,6 +714,8 @@ def renew_member():
         member_id=member.id, plan_id=plan_id,
         start_date=start_date, end_date=end_date
     ))
+
+    log_action(f"Renewed membership: {member.name} — plan '{plan.name}' until {end_date}")
     db.session.commit()
 
     return jsonify({"message": "Membership renewed", "new_expiry": str(end_date)})
@@ -672,7 +735,6 @@ def member_history(member_id):
         return jsonify({"error": "Unauthorized"}), 403
 
     history = MembershipHistory.query.filter_by(member_id=member_id).all()
-
     return jsonify([{
         "plan_id":    h.plan_id,
         "start_date": str(h.start_date),
@@ -704,7 +766,6 @@ def member_profile(unique_id):
 @login_required
 def get_members():
     members = Member.query.filter(gym_member_filter()).all()
-
     return jsonify([{
         "id":          m.id,
         "unique_id":   m.unique_id,
@@ -713,6 +774,7 @@ def get_members():
         "email":       m.email,
         "age":         m.age,
         "gender":      m.gender,
+        "address":     m.address,
         "photo":       m.photo,
         "expiry_date": str(m.expiry_date)
     } for m in members])
@@ -731,6 +793,7 @@ def delete_member(id):
     if not owns_member(member):
         return jsonify({"error": "Unauthorized"}), 403
 
+    log_action(f"Deleted member: {member.name} ({member.phone})")
     db.session.delete(member)
     db.session.commit()
 
@@ -738,9 +801,9 @@ def delete_member(id):
 
 
 # -----------------------
-# Update Member
+# Update Member  (supports multipart for photo upload)
 # -----------------------
-@app.route("/update-member/<int:id>", methods=["PUT"])
+@app.route("/update-member/<int:id>", methods=["POST"])
 @login_required
 def update_member(id):
     member = db.session.get(Member, id)
@@ -750,24 +813,32 @@ def update_member(id):
     if not owns_member(member):
         return jsonify({"error": "Unauthorized"}), 403
 
-    data = request.get_json()
+    member.name    = request.form.get("name",    member.name)
+    member.phone   = request.form.get("phone",   member.phone)
+    member.email   = request.form.get("email",   member.email) or None
+    member.gender  = request.form.get("gender",  member.gender)
+    member.address = request.form.get("address", member.address)
 
-    member.name    = data.get("name",    member.name)
-    member.phone   = data.get("phone",   member.phone)
-    member.email   = data.get("email",   member.email) or None
-    member.gender  = data.get("gender",  member.gender)
-    member.address = data.get("address", member.address)
-
-    age = data.get("age", member.age)
+    age = request.form.get("age", "")
     if age in ("", None, "null"):
-        member.age = None
+        member.age = member.age  # keep existing
     else:
         try:
             member.age = int(age)
         except (ValueError, TypeError):
-            member.age = None
+            pass
 
+    # Photo update — only replace if a new file is uploaded
+    file = request.files.get("photo")
+    if file and file.filename != "":
+        filename = f"{member.phone}.jpg"
+        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        file.save(filepath)
+        member.photo = "/" + filepath.replace("\\", "/")
+
+    log_action(f"Edited member: {member.name} ({member.phone})")
     db.session.commit()
+
     return jsonify({"message": "Member updated successfully"})
 
 
@@ -852,8 +923,80 @@ def upload_csv():
         ))
         inserted += 1
 
+    log_action(f"CSV upload: {inserted} inserted, {skipped} skipped")
     db.session.commit()
     return jsonify({"inserted": inserted, "skipped": skipped})
+
+
+# -----------------------
+# Export Members — CSV
+# -----------------------
+@app.route("/export/members/csv")
+@login_required
+def export_members_csv():
+    gym_id = None if is_admin() else session["gym_id"]
+
+    q = Member.query
+    if gym_id:
+        q = q.filter_by(gym_id=gym_id)
+    members = q.all()
+
+    # Build gym name map
+    gym_names = {g.id: g.name for g in Gym.query.all()}
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Name", "Phone", "Email", "Age", "Gender",
+                     "Address", "Join Date", "Expiry Date", "Gym"])
+
+    for m in members:
+        writer.writerow([
+            m.unique_id, m.name, m.phone, m.email or "",
+            m.age or "", m.gender or "", m.address or "",
+            m.join_date, m.expiry_date,
+            gym_names.get(m.gym_id, "")
+        ])
+
+    log_action("Exported members as CSV")
+    db.session.commit()
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=members.csv"}
+    )
+
+
+# -----------------------
+# Export Members — JSON (for Excel via JS)
+# -----------------------
+@app.route("/export/members/json")
+@login_required
+def export_members_json():
+    gym_id = None if is_admin() else session["gym_id"]
+
+    q = Member.query
+    if gym_id:
+        q = q.filter_by(gym_id=gym_id)
+    members = q.all()
+
+    gym_names = {g.id: g.name for g in Gym.query.all()}
+
+    log_action("Exported members as Excel/JSON")
+    db.session.commit()
+
+    return jsonify([{
+        "ID":         m.unique_id,
+        "Name":       m.name,
+        "Phone":      m.phone,
+        "Email":      m.email or "",
+        "Age":        m.age or "",
+        "Gender":     m.gender or "",
+        "Address":    m.address or "",
+        "Join Date":  str(m.join_date),
+        "Expiry":     str(m.expiry_date),
+        "Gym":        gym_names.get(m.gym_id, "")
+    } for m in members])
 
 
 # -----------------------
