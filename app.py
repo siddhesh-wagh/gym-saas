@@ -803,8 +803,7 @@ def admin_view_members(gym_id):
         return "Gym not found", 404
 
     members = Member.query.filter_by(gym_id=gym_id).all()
-    return render_template("admin_members.html", members=members, gym=gym,
-                           now=datetime.today().date())
+    return render_template("admin_members.html", members=members, gym=gym)
 
 
 # -----------------------

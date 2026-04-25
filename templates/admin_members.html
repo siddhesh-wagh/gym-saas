@@ -18,25 +18,41 @@
 
 <div class="container">
 
+    <!-- GYM INFO -->
     <div class="card">
         <div class="section-header">
             <div>
                 <div class="card-title">🏢 {{ gym.name }}</div>
                 <div style="font-size:13px; color:var(--text-3);">{{ gym.email }}</div>
             </div>
-            <div class="stats-grid" style="margin:0; gap:12px;">
-                <div class="stat-card accent-blue" style="padding:14px 18px; margin:0;">
-                    <div class="stat-label">Total Members</div>
-                    <div class="stat-value" style="font-size:1.5em;">{{ members|length }}</div>
-                </div>
+            <div>
+                <span class="badge {{ 'badge-active' if gym.is_active else 'badge-disabled' }}">
+                    {{ "Active" if gym.is_active else "Disabled" }}
+                </span>
+            </div>
+        </div>
+
+        <div class="stats-grid" style="margin-top:16px;">
+            <div class="stat-card accent-blue">
+                <div class="stat-label">Total Members</div>
+                <div class="stat-value">{{ members | length }}</div>
+            </div>
+            <div class="stat-card accent-green">
+                <div class="stat-label">Active</div>
+                <div class="stat-value" id="activeCount">—</div>
+            </div>
+            <div class="stat-card accent-amber">
+                <div class="stat-label">Expired</div>
+                <div class="stat-value" id="expiredCount">—</div>
             </div>
         </div>
     </div>
 
+    <!-- MEMBERS TABLE -->
     <div class="card">
         <div class="section-header">
             <div class="card-title">👥 Members</div>
-            <input type="text" id="searchInput" placeholder="🔍 Search…"
+            <input type="text" id="searchInput" placeholder="🔍 Search name / phone…"
                    oninput="filterTable()" style="width:210px;" />
         </div>
 
@@ -58,11 +74,11 @@
                 </thead>
                 <tbody>
                     {% for m in members %}
-                    {% set today = namespace(d=None) %}
                     <tr>
                         <td>{{ m.unique_id }}</td>
                         <td>
-                            <a href="/member/{{ m.unique_id }}" target="_blank" style="font-weight:600;">
+                            <a href="/member/{{ m.unique_id }}" target="_blank"
+                               style="font-weight:600; color:var(--primary);">
                                 {{ m.name }}
                             </a>
                         </td>
@@ -73,20 +89,15 @@
                         <td style="color:var(--text-2);">{{ m.join_date }}</td>
                         <td>{{ m.expiry_date }}</td>
                         <td>
-                            {% set diff = (m.expiry_date - now).days if m.expiry_date else -1 %}
-                            {% if m.expiry_date < now %}
-                                <span class="badge badge-expired">Expired</span>
-                            {% elif (m.expiry_date - now).days <= 3 %}
-                                <span class="badge badge-expiring">Expiring Soon</span>
-                            {% else %}
-                                <span class="badge badge-active">Active</span>
-                            {% endif %}
+                            <!-- Status set by JS using expiry_date -->
+                            <span class="badge" data-expiry="{{ m.expiry_date }}">—</span>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+
         {% else %}
             <div style="text-align:center; padding:40px; color:var(--text-3);">
                 This gym has no members yet.
@@ -97,12 +108,50 @@
 </div>
 
 <script>
-function filterTable() {
-    const q = document.getElementById("searchInput").value.toLowerCase();
-    document.querySelectorAll("#membersTable tbody tr").forEach(row => {
-        row.style.display = row.innerText.toLowerCase().includes(q) ? "" : "none";
-    });
-}
+    // --------------------
+    // EXPIRY BADGES (set by JS — avoids Jinja date math)
+    // --------------------
+    (function () {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        let active = 0, expired = 0;
+
+        document.querySelectorAll("[data-expiry]").forEach(badge => {
+            const expiry   = new Date(badge.dataset.expiry);
+            const diffDays = Math.ceil((expiry - today) / 86400000);
+
+            if (diffDays < 0) {
+                badge.textContent = "Expired";
+                badge.className   = "badge badge-expired";
+                expired++;
+            } else if (diffDays <= 3) {
+                badge.textContent = `Expiring (${diffDays}d)`;
+                badge.className   = "badge badge-expiring";
+                active++;
+            } else {
+                badge.textContent = "Active";
+                badge.className   = "badge badge-active";
+                active++;
+            }
+        });
+
+        const elActive  = document.getElementById("activeCount");
+        const elExpired = document.getElementById("expiredCount");
+        if (elActive)  elActive.textContent  = active;
+        if (elExpired) elExpired.textContent = expired;
+    })();
+
+    // --------------------
+    // SEARCH
+    // --------------------
+    function filterTable() {
+        const q = document.getElementById("searchInput").value.toLowerCase();
+        document.querySelectorAll("#membersTable tbody tr").forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(q) ? "" : "none";
+        });
+    }
 </script>
+
 </body>
 </html>
