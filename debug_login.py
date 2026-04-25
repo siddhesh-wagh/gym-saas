@@ -1,8 +1,8 @@
 from app import app, db, Gym
 from werkzeug.security import check_password_hash, generate_password_hash
 
-EMAIL    = "sid.website11@gmail.com"  # ← replace
-PASSWORD = "Siddhesh@9321"          # ← replace
+EMAIL    = ".env"  # ← replace
+PASSWORD = ".env"          # ← replace
 
 with app.app_context():
     gym = Gym.query.filter_by(email=EMAIL).first()

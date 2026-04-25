@@ -1,8 +1,8 @@
 from app import app, db, Gym, ADMIN_EMAILS
 from werkzeug.security import check_password_hash
 
-EMAIL    = "sid.website11@gmail.com"   # your admin email
-PASSWORD = "Siddhesh@9321"             # your password
+EMAIL    = ".env"   # your admin email
+PASSWORD = ".env"             # your password
 
 with app.app_context():
     print(f"\nADMIN_EMAILS from .env: {repr(ADMIN_EMAILS)}")
