@@ -102,7 +102,6 @@ def log_action(action, gym_id=None):
 # -----------------------
 
 def active_gym_ids():
-    """Returns a list of gym IDs that are NOT soft-deleted."""
     return [
         g.id for g in Gym.query.filter_by(role="gym", is_deleted=False)
         .with_entities(Gym.id).all()
@@ -267,12 +266,36 @@ def logout():
 
 
 # -----------------------
-# Gym Dashboard
+# Gym Dashboard  — passes subscription info to template
 # -----------------------
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    return render_template("index.html")
+    gym   = db.session.get(Gym, session["gym_id"])
+    today = datetime.today().date()
+
+    # Subscription status
+    sub_expiry  = gym.subscription_expiry
+    sub_days    = None
+    sub_status  = "none"   # none | ok | warning | expired
+
+    if sub_expiry:
+        diff = (sub_expiry - today).days
+        sub_days = diff
+        if diff < 0:
+            sub_status = "expired"
+        elif diff <= 3:
+            sub_status = "warning"
+        else:
+            sub_status = "ok"
+
+    return render_template(
+        "index.html",
+        gym_name=gym.name,
+        sub_expiry=str(sub_expiry) if sub_expiry else None,
+        sub_days=sub_days,
+        sub_status=sub_status
+    )
 
 
 # -----------------------
@@ -284,20 +307,17 @@ def dashboard():
 def admin_dashboard():
     today = datetime.today().date()
 
-    # Only non-deleted gym owners
     gyms = Gym.query.filter_by(role="gym", is_deleted=False)\
                     .order_by(Gym.created_at.desc()).all()
 
     gym_ids = [g.id for g in gyms]
 
-    # FIX: member counts only for non-deleted gyms
     member_counts = dict(
         db.session.query(Member.gym_id, func.count(Member.id))
         .filter(Member.gym_id.in_(gym_ids))
         .group_by(Member.gym_id).all()
     ) if gym_ids else {}
 
-    # FIX: total_members and active_today only count members of non-deleted gyms
     total_members = (
         db.session.query(func.count(Member.id))
         .filter(Member.gym_id.in_(gym_ids))
@@ -372,7 +392,7 @@ def toggle_gym(gym_id):
 
 
 # -----------------------
-# Admin — Soft Delete Gym  (also deletes all members)
+# Admin — Soft Delete Gym
 # -----------------------
 @app.route("/admin/delete-gym/<int:gym_id>", methods=["DELETE"])
 @login_required
@@ -386,12 +406,10 @@ def delete_gym(gym_id):
         if gym.id == session["gym_id"]:
             return jsonify({"error": "Cannot delete yourself"}), 400
 
-        # FIX: hard-delete all members of this gym so counts stay accurate
         members = Member.query.filter_by(gym_id=gym_id).all()
         for m in members:
             db.session.delete(m)
 
-        # Soft-delete the gym itself (keeps audit trail)
         gym.is_deleted = True
         gym.is_active  = False
 
@@ -399,7 +417,7 @@ def delete_gym(gym_id):
         db.session.commit()
 
         return jsonify({"message": f"Gym deleted ({len(members)} members removed)"})
-    except Exception as e:
+    except Exception:
         db.session.rollback()
         return jsonify({"error": "Delete failed"}), 500
 
@@ -675,7 +693,6 @@ def member_profile(unique_id):
     if not owns_member(member):
         return "Unauthorized", 403
 
-    # Pass back_url so the template can show correct back button
     back_url = request.args.get("from", "/dashboard")
     return render_template("member.html", member=member, back_url=back_url)
 

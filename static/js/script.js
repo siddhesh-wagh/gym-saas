@@ -5,9 +5,9 @@ function showResult(elId, msg, type) {
     const el = document.getElementById(elId);
     if (!el) return;
     el.textContent = msg;
-    el.className   = type; // "success" or "error"
+    el.className   = type;
     el.classList.add("show");
-    setTimeout(() => { el.classList.remove("show"); }, 4000);
+    setTimeout(() => el.classList.remove("show"), 4000);
 }
 
 function expiryBadge(dateStr) {
@@ -18,6 +18,45 @@ function expiryBadge(dateStr) {
     if (diffDays < 0)  return `<span class="badge badge-expired">Expired</span>`;
     if (diffDays <= 3) return `<span class="badge badge-expiring">Expiring (${diffDays}d)</span>`;
     return `<span class="badge badge-active">Active</span>`;
+}
+
+
+// --------------------
+// LOAD PLANS  — populates all plan dropdowns from /plans API
+// --------------------
+function loadPlans() {
+    fetch("/plans")
+        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(plans => {
+            const selectors = ["#plan_id", "#csvPlanId", "#renewPlanId"];
+
+            selectors.forEach(sel => {
+                const el = document.querySelector(sel);
+                if (!el) return;
+
+                // Remember previously selected value (if any)
+                const prev = el.value;
+                el.innerHTML = "";
+
+                if (!plans.length) {
+                    el.innerHTML = `<option value="">No plans available</option>`;
+                    return;
+                }
+
+                plans.forEach(p => {
+                    const opt = document.createElement("option");
+                    opt.value       = p.id;
+                    opt.textContent = `${p.name} (${p.duration_days} days)`;
+                    el.appendChild(opt);
+                });
+
+                // Restore selection if still valid
+                if (prev && el.querySelector(`option[value="${prev}"]`)) {
+                    el.value = prev;
+                }
+            });
+        })
+        .catch(err => console.error("loadPlans:", err));
 }
 
 
@@ -42,8 +81,8 @@ function renderTable(data) {
     }
 
     tbody.innerHTML = data.map(m => `
-        <tr data-search="${(m.name + m.phone).toLowerCase()}">
-            <td>${m.unique_id || ""}</td>
+        <tr data-search="${(m.name + " " + m.phone).toLowerCase()}">
+            <td style="color:var(--text-3);font-size:12px;">${m.unique_id || ""}</td>
             <td>
                 <a href="/member/${m.unique_id}" target="_blank" style="font-weight:600;">
                     ${m.name || "N/A"}
@@ -70,7 +109,7 @@ function updateStats(data) {
     const today    = new Date(); today.setHours(0,0,0,0);
     const active   = data.filter(m => new Date(m.expiry_date) >= today).length;
     const expiring = data.filter(m => {
-        const d = new Date(m.expiry_date);
+        const d    = new Date(m.expiry_date);
         const diff = Math.ceil((d - today) / 86400000);
         return diff >= 0 && diff <= 3;
     }).length;
@@ -86,7 +125,7 @@ function updateStats(data) {
 
 
 // --------------------
-// SEARCH / FILTER TABLE
+// SEARCH / FILTER
 // --------------------
 function filterTable() {
     const q = document.getElementById("searchInput").value.toLowerCase();
@@ -115,6 +154,8 @@ document.getElementById("memberForm").addEventListener("submit", function(e) {
             } else {
                 showResult("result", `✅ Added! ID: ${data.member_id} | Expiry: ${data.expiry_date}`, "success");
                 this.reset();
+                // Reload plans after reset (reset clears the select)
+                loadPlans();
                 loadMembers();
                 loadAlerts();
             }
@@ -236,6 +277,7 @@ function uploadCSV() {
 // AUTO LOAD
 // --------------------
 window.onload = function() {
+    loadPlans();     // fills plan dropdowns from DB
     loadMembers();
     loadAlerts();
 };
