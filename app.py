@@ -27,7 +27,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SECURE=False,   # Set True in production (HTTPS)
+    SESSION_COOKIE_SECURE=False,
     SESSION_COOKIE_SAMESITE="Lax"
 )
 
@@ -77,7 +77,6 @@ def is_admin():
 
 
 def gym_member_filter():
-    """Scope Member queries to the current gym unless admin."""
     if is_admin():
         return db.true()
     return Member.gym_id == session["gym_id"]
@@ -95,7 +94,19 @@ def log_action(action, gym_id=None):
             performed_by=session.get("gym_id")
         ))
     except Exception:
-        pass  # Never let audit logging crash the main flow
+        pass
+
+
+# -----------------------
+# Helper: IDs of non-deleted gyms
+# -----------------------
+
+def active_gym_ids():
+    """Returns a list of gym IDs that are NOT soft-deleted."""
+    return [
+        g.id for g in Gym.query.filter_by(role="gym", is_deleted=False)
+        .with_entities(Gym.id).all()
+    ]
 
 
 # -----------------------
@@ -111,8 +122,6 @@ class Gym(db.Model):
     is_active  = db.Column(db.Boolean, default=True)
     is_deleted = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    # SaaS subscription
     subscription_expiry = db.Column(db.Date, nullable=True)
 
 
@@ -142,13 +151,10 @@ class Member(db.Model):
     gender    = db.Column(db.String(10))
     address   = db.Column(db.String(200))
     photo     = db.Column(db.String(200))
-
     join_date   = db.Column(db.Date)
     expiry_date = db.Column(db.Date)
-
     gym_id  = db.Column(db.Integer, db.ForeignKey('gym.id'))
     plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'))
-
     history = db.relationship(
         'MembershipHistory', backref='member',
         lazy=True, cascade="all, delete-orphan"
@@ -164,17 +170,15 @@ class MembershipHistory(db.Model):
 
 
 class Payment(db.Model):
-    """Payment placeholder — plug Razorpay/Stripe here later."""
     id         = db.Column(db.Integer, primary_key=True)
     gym_id     = db.Column(db.Integer, db.ForeignKey('gym.id'))
-    amount     = db.Column(db.Integer)       # in paise/cents
-    status     = db.Column(db.String(20))    # pending / success / failed
-    reference  = db.Column(db.String(100))   # gateway order ID
+    amount     = db.Column(db.Integer)
+    status     = db.Column(db.String(20))
+    reference  = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class AuditLog(db.Model):
-    """Track every important admin action."""
     id           = db.Column(db.Integer, primary_key=True)
     action       = db.Column(db.String(200))
     gym_id       = db.Column(db.Integer, nullable=True)
@@ -194,7 +198,7 @@ def home():
 
 
 # -----------------------
-# Signup  (gym owners only — role always "gym")
+# Signup
 # -----------------------
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
@@ -216,7 +220,6 @@ def signup():
                   role="gym", subscription_expiry=trial_expiry)
         db.session.add(gym)
         db.session.commit()
-
         return redirect("/login")
 
     return render_template("signup.html")
@@ -280,13 +283,32 @@ def dashboard():
 @role_required("admin")
 def admin_dashboard():
     today = datetime.today().date()
-    gyms  = Gym.query.filter_by(role="gym", is_deleted=False)\
-                     .order_by(Gym.created_at.desc()).all()
 
+    # Only non-deleted gym owners
+    gyms = Gym.query.filter_by(role="gym", is_deleted=False)\
+                    .order_by(Gym.created_at.desc()).all()
+
+    gym_ids = [g.id for g in gyms]
+
+    # FIX: member counts only for non-deleted gyms
     member_counts = dict(
         db.session.query(Member.gym_id, func.count(Member.id))
+        .filter(Member.gym_id.in_(gym_ids))
         .group_by(Member.gym_id).all()
-    )
+    ) if gym_ids else {}
+
+    # FIX: total_members and active_today only count members of non-deleted gyms
+    total_members = (
+        db.session.query(func.count(Member.id))
+        .filter(Member.gym_id.in_(gym_ids))
+        .scalar()
+    ) if gym_ids else 0
+
+    active_today = (
+        db.session.query(func.count(Member.id))
+        .filter(Member.gym_id.in_(gym_ids), Member.expiry_date >= today)
+        .scalar()
+    ) if gym_ids else 0
 
     gym_data = [{
         "id":                  g.id,
@@ -301,8 +323,8 @@ def admin_dashboard():
     return render_template(
         "admin.html",
         total_gyms=len(gyms),
-        total_members=Member.query.count(),
-        active_today=Member.query.filter(Member.expiry_date >= today).count(),
+        total_members=total_members,
+        active_today=active_today,
         gym_data=gym_data
     )
 
@@ -314,13 +336,15 @@ def admin_dashboard():
 @login_required
 @role_required("admin")
 def admin_stats():
-    today = datetime.today().date()
+    today   = datetime.today().date()
+    gym_ids = active_gym_ids()
+
     return jsonify({
-        "total_gyms":      Gym.query.filter_by(role="gym", is_deleted=False).count(),
+        "total_gyms":      len(gym_ids),
         "active_gyms":     Gym.query.filter_by(role="gym", is_active=True, is_deleted=False).count(),
-        "total_members":   Member.query.count(),
-        "active_members":  Member.query.filter(Member.expiry_date >= today).count(),
-        "expired_members": Member.query.filter(Member.expiry_date < today).count(),
+        "total_members":   db.session.query(func.count(Member.id)).filter(Member.gym_id.in_(gym_ids)).scalar() if gym_ids else 0,
+        "active_members":  db.session.query(func.count(Member.id)).filter(Member.gym_id.in_(gym_ids), Member.expiry_date >= today).scalar() if gym_ids else 0,
+        "expired_members": db.session.query(func.count(Member.id)).filter(Member.gym_id.in_(gym_ids), Member.expiry_date < today).scalar() if gym_ids else 0,
     })
 
 
@@ -348,7 +372,7 @@ def toggle_gym(gym_id):
 
 
 # -----------------------
-# Admin — Soft Delete Gym
+# Admin — Soft Delete Gym  (also deletes all members)
 # -----------------------
 @app.route("/admin/delete-gym/<int:gym_id>", methods=["DELETE"])
 @login_required
@@ -362,13 +386,20 @@ def delete_gym(gym_id):
         if gym.id == session["gym_id"]:
             return jsonify({"error": "Cannot delete yourself"}), 400
 
+        # FIX: hard-delete all members of this gym so counts stay accurate
+        members = Member.query.filter_by(gym_id=gym_id).all()
+        for m in members:
+            db.session.delete(m)
+
+        # Soft-delete the gym itself (keeps audit trail)
         gym.is_deleted = True
         gym.is_active  = False
-        log_action(f"Soft-deleted gym {gym.email}", gym_id)
+
+        log_action(f"Soft-deleted gym {gym.email} and removed {len(members)} members", gym_id)
         db.session.commit()
 
-        return jsonify({"message": "Gym deleted successfully"})
-    except Exception:
+        return jsonify({"message": f"Gym deleted ({len(members)} members removed)"})
+    except Exception as e:
         db.session.rollback()
         return jsonify({"error": "Delete failed"}), 500
 
@@ -419,6 +450,21 @@ def audit_logs():
         "performed_by": l.performed_by,
         "created_at":   l.created_at.strftime("%d %b %Y %H:%M")
     } for l in logs])
+
+
+# -----------------------
+# Admin — View Members of a Specific Gym
+# -----------------------
+@app.route("/admin/gym/<int:gym_id>/members")
+@login_required
+@role_required("admin")
+def admin_view_members(gym_id):
+    gym = db.session.get(Gym, gym_id)
+    if not gym or gym.is_deleted:
+        return "Gym not found", 404
+
+    members = Member.query.filter_by(gym_id=gym_id).all()
+    return render_template("admin_members.html", members=members, gym=gym)
 
 
 # -----------------------
@@ -629,7 +675,9 @@ def member_profile(unique_id):
     if not owns_member(member):
         return "Unauthorized", 403
 
-    return render_template("member.html", member=member)
+    # Pass back_url so the template can show correct back button
+    back_url = request.args.get("from", "/dashboard")
+    return render_template("member.html", member=member, back_url=back_url)
 
 
 # -----------------------
@@ -789,21 +837,6 @@ def upload_csv():
 
     db.session.commit()
     return jsonify({"inserted": inserted, "skipped": skipped})
-
-
-# -----------------------
-# Admin — View Members of a Specific Gym
-# -----------------------
-@app.route("/admin/gym/<int:gym_id>/members")
-@login_required
-@role_required("admin")
-def admin_view_members(gym_id):
-    gym     = db.session.get(Gym, gym_id)
-    if not gym:
-        return "Gym not found", 404
-
-    members = Member.query.filter_by(gym_id=gym_id).all()
-    return render_template("admin_members.html", members=members, gym=gym)
 
 
 # -----------------------

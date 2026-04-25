@@ -11,25 +11,29 @@
 <div class="topbar">
     <span class="topbar-brand">🛡️ Admin Panel</span>
     <div class="topbar-right">
-        <a href="/admin" class="btn btn-ghost btn-sm">← Back</a>
+        <a href="/admin" class="btn btn-ghost btn-sm">← Back to Admin</a>
         <a href="/logout" class="logout-link">Logout</a>
     </div>
 </div>
 
 <div class="container">
 
-    <!-- GYM INFO -->
+    <!-- GYM INFO CARD -->
     <div class="card">
         <div class="section-header">
             <div>
                 <div class="card-title">🏢 {{ gym.name }}</div>
-                <div style="font-size:13px; color:var(--text-3);">{{ gym.email }}</div>
+                <div style="font-size:13px; color:var(--text-3); margin-top:2px;">
+                    {{ gym.email }}
+                    &nbsp;·&nbsp;
+                    Joined {{ gym.created_at.strftime('%d %b %Y') if gym.created_at else '—' }}
+                    &nbsp;·&nbsp;
+                    Sub expires: {{ gym.subscription_expiry or '—' }}
+                </div>
             </div>
-            <div>
-                <span class="badge {{ 'badge-active' if gym.is_active else 'badge-disabled' }}">
-                    {{ "Active" if gym.is_active else "Disabled" }}
-                </span>
-            </div>
+            <span class="badge {{ 'badge-active' if gym.is_active else 'badge-disabled' }}">
+                {{ "Active" if gym.is_active else "Disabled" }}
+            </span>
         </div>
 
         <div class="stats-grid" style="margin-top:16px;">
@@ -41,7 +45,7 @@
                 <div class="stat-label">Active</div>
                 <div class="stat-value" id="activeCount">—</div>
             </div>
-            <div class="stat-card accent-amber">
+            <div class="stat-card accent-red">
                 <div class="stat-label">Expired</div>
                 <div class="stat-value" id="expiredCount">—</div>
             </div>
@@ -75,9 +79,11 @@
                 <tbody>
                     {% for m in members %}
                     <tr>
-                        <td>{{ m.unique_id }}</td>
+                        <td style="color:var(--text-3); font-size:12px;">{{ m.unique_id }}</td>
                         <td>
-                            <a href="/member/{{ m.unique_id }}" target="_blank"
+                            <!-- FIX: pass ?from=/admin/gym/ID/members so back button is correct -->
+                            <a href="/member/{{ m.unique_id }}?from=/admin/gym/{{ gym.id }}/members"
+                               target="_blank"
                                style="font-weight:600; color:var(--primary);">
                                 {{ m.name }}
                             </a>
@@ -89,7 +95,6 @@
                         <td style="color:var(--text-2);">{{ m.join_date }}</td>
                         <td>{{ m.expiry_date }}</td>
                         <td>
-                            <!-- Status set by JS using expiry_date -->
                             <span class="badge" data-expiry="{{ m.expiry_date }}">—</span>
                         </td>
                     </tr>
@@ -99,22 +104,19 @@
         </div>
 
         {% else %}
-            <div style="text-align:center; padding:40px; color:var(--text-3);">
-                This gym has no members yet.
-            </div>
+        <div style="text-align:center; padding:40px; color:var(--text-3);">
+            This gym has no members yet.
+        </div>
         {% endif %}
     </div>
 
 </div>
 
 <script>
-    // --------------------
-    // EXPIRY BADGES (set by JS — avoids Jinja date math)
-    // --------------------
+    // Set expiry badges + count active/expired via JS (no Jinja date math)
     (function () {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-
         let active = 0, expired = 0;
 
         document.querySelectorAll("[data-expiry]").forEach(badge => {
@@ -136,15 +138,10 @@
             }
         });
 
-        const elActive  = document.getElementById("activeCount");
-        const elExpired = document.getElementById("expiredCount");
-        if (elActive)  elActive.textContent  = active;
-        if (elExpired) elExpired.textContent = expired;
+        document.getElementById("activeCount").textContent  = active;
+        document.getElementById("expiredCount").textContent = expired;
     })();
 
-    // --------------------
-    // SEARCH
-    // --------------------
     function filterTable() {
         const q = document.getElementById("searchInput").value.toLowerCase();
         document.querySelectorAll("#membersTable tbody tr").forEach(row => {
