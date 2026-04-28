@@ -4,7 +4,7 @@
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Admin — GymSaaS</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"/>
 </head>
 <body>
 
@@ -24,25 +24,69 @@
             <div class="stat-label">Total Gyms</div>
             <div class="stat-value">{{ total_gyms }}</div>
         </div>
+        <div class="stat-card accent-amber">
+            <div class="stat-icon">⏳</div>
+            <div class="stat-label">Pending Approval</div>
+            <div class="stat-value">{{ pending_data | length }}</div>
+        </div>
         <div class="stat-card accent-green">
             <div class="stat-icon">👥</div>
             <div class="stat-label">Total Members</div>
             <div class="stat-value">{{ total_members }}</div>
         </div>
-        <div class="stat-card accent-amber">
+        <div class="stat-card accent-info">
             <div class="stat-icon">✅</div>
             <div class="stat-label">Active Memberships</div>
             <div class="stat-value">{{ active_today }}</div>
         </div>
     </div>
 
+    <!-- PENDING APPROVALS -->
+    {% if pending_data %}
+    <div class="pending-section">
+        <div class="card-title">⏳ Pending Gym Approvals ({{ pending_data | length }})</div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Gym Name</th><th>Email</th><th>Phone</th>
+                        <th>Applied</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for g in pending_data %}
+                    <tr id="pending-row-{{ g.id }}">
+                        <td><strong>{{ g.name }}</strong></td>
+                        <td>{{ g.email }}</td>
+                        <td>{{ g.phone }}</td>
+                        <td style="color:var(--text-3);">{{ g.created_at }}</td>
+                        <td>
+                            <div class="td-actions">
+                                <button class="btn btn-sm btn-success"
+                                        onclick="approveGym({{ g.id }})">
+                                    ✅ Approve
+                                </button>
+                                <button class="btn btn-sm btn-danger"
+                                        onclick="rejectGym({{ g.id }})">
+                                    ❌ Reject
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- GYMS TABLE -->
     <div class="card">
         <div class="section-header">
-            <div class="card-title">🏢 Registered Gyms</div>
+            <div class="card-title">🏢 Approved Gyms</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                 <input type="text" id="gymSearch" placeholder="🔍 Search gym…"
-                       oninput="filterGyms()" style="width:200px;" />
+                       oninput="filterGyms()" style="width:200px;"/>
                 <button class="btn btn-sm btn-success" onclick="exportCSV()">⬇ CSV</button>
                 <button class="btn btn-sm btn-warning" onclick="exportExcel()">⬇ Excel</button>
                 <button class="btn btn-sm btn-danger" onclick="exportPDF()">⬇ PDF</button>
@@ -54,14 +98,9 @@
             <table id="gymTable">
                 <thead>
                     <tr>
-                        <th>#</th>
-                        <th>Gym Name</th>
-                        <th>Email</th>
-                        <th>Members</th>
-                        <th>Subscription</th>
-                        <th>Joined</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th>#</th><th>Gym Name</th><th>Email</th><th>Phone</th>
+                        <th>Members</th><th>Subscription</th><th>Joined</th>
+                        <th>Status</th><th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -70,6 +109,7 @@
                         <td>{{ loop.index }}</td>
                         <td><strong>{{ g.name }}</strong></td>
                         <td style="color:var(--text-2);">{{ g.email }}</td>
+                        <td style="color:var(--text-2);">{{ g.phone }}</td>
                         <td>{{ g.members }}</td>
                         <td>
                             {% if g.subscription_expiry == "—" %}
@@ -87,24 +127,19 @@
                         </td>
                         <td>
                             <div class="td-actions">
-                                <button class="btn btn-sm btn-ghost" onclick="viewMembers({{ g.id }})">
-                                    👁 Members
-                                </button>
-                                <button class="btn btn-sm btn-ghost" onclick="viewLogs({{ g.id }}, '{{ g.name }}')">
-                                    📋 Logs
-                                </button>
+                                <button class="btn btn-sm btn-ghost"
+                                        onclick="viewMembers({{ g.id }})">👁 Members</button>
+                                <button class="btn btn-sm btn-info"
+                                        onclick="viewLogs({{ g.id }}, '{{ g.name }}')">📋 Logs</button>
                                 <button class="btn btn-sm btn-warning"
                                         onclick="toggleGym({{ g.id }}, this)"
                                         id="toggle-btn-{{ g.id }}">
                                     {{ "Disable" if g.is_active else "Enable" }}
                                 </button>
                                 <button class="btn btn-sm btn-success"
-                                        onclick="openRenew({{ g.id }}, '{{ g.name }}')">
-                                    🔄 Renew
-                                </button>
-                                <button class="btn btn-sm btn-danger" onclick="deleteGym({{ g.id }})">
-                                    🗑 Delete
-                                </button>
+                                        onclick="openRenew({{ g.id }}, '{{ g.name }}')">🔄 Renew</button>
+                                <button class="btn btn-sm btn-danger"
+                                        onclick="deleteGym({{ g.id }})">🗑 Delete</button>
                             </div>
                         </td>
                     </tr>
@@ -113,9 +148,7 @@
             </table>
         </div>
         {% else %}
-        <div style="text-align:center; padding:40px; color:var(--text-3);">
-            No gyms registered yet.
-        </div>
+        <div style="text-align:center;padding:40px;color:var(--text-3);">No approved gyms yet.</div>
         {% endif %}
     </div>
 
@@ -126,10 +159,18 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                 <button class="btn btn-ghost btn-sm" onclick="loadLogs(null)">Show All</button>
                 <button class="btn btn-ghost btn-sm" onclick="loadLogs(currentLogGymId)">🔄 Refresh</button>
+                <button class="btn btn-sm btn-danger" onclick="exportLogPDF()">⬇ PDF</button>
             </div>
         </div>
-        <div id="logList" style="max-height:400px; overflow-y:auto;">
-            <div style="text-align:center;color:var(--text-3);padding:20px;">Loading…</div>
+        <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
+            <table class="log-table">
+                <thead>
+                    <tr><th>Gym</th><th>Action</th><th>Time</th></tr>
+                </thead>
+                <tbody id="logBody">
+                    <tr><td colspan="3" style="text-align:center;color:var(--text-3);padding:20px;">Loading…</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 
@@ -139,8 +180,8 @@
 <div class="modal-overlay" id="renewModal">
     <div class="modal">
         <div class="modal-title">🔄 Renew Subscription</div>
-        <p id="renewGymName" style="color:var(--text-2); font-size:14px; margin-bottom:16px;"></p>
-        <input type="hidden" id="renewGymId" />
+        <p id="renewGymName" style="color:var(--text-2);font-size:14px;margin-bottom:16px;"></p>
+        <input type="hidden" id="renewGymId"/>
         <div class="form-group">
             <label>Extend by</label>
             <select id="renewDays">
@@ -159,10 +200,15 @@
 
 <!-- GYM LOGS MODAL -->
 <div class="modal-overlay" id="logsModal">
-    <div class="modal" style="width:620px; max-height:80vh; display:flex; flex-direction:column;">
+    <div class="modal" style="width:660px;max-height:80vh;display:flex;flex-direction:column;">
         <div class="modal-title" id="logsModalTitle">📋 Gym Logs</div>
-        <div id="logsModalBody" style="overflow-y:auto; flex:1; margin-bottom:16px;">
-            <div style="text-align:center;color:var(--text-3);padding:20px;">Loading…</div>
+        <div style="overflow-y:auto;flex:1;margin-bottom:16px;">
+            <table class="log-table" style="width:100%;">
+                <thead><tr><th>Action</th><th>Time</th></tr></thead>
+                <tbody id="logsModalBody">
+                    <tr><td colspan="2" style="text-align:center;color:var(--text-3);padding:20px;">Loading…</td></tr>
+                </tbody>
+            </table>
         </div>
         <div class="modal-footer">
             <button class="btn btn-ghost" onclick="closeLogsModal()">Close</button>
@@ -191,108 +237,120 @@ function viewMembers(gymId) {
 }
 
 // --------------------
+// APPROVE / REJECT
+// --------------------
+function approveGym(gymId) {
+    if (!confirm("Approve this gym?")) return;
+    fetch(`/admin/approve-gym/${gymId}`, { method: "POST" })
+        .then(r => r.json())
+        .then(d => {
+            alert("✅ " + d.message);
+            document.getElementById(`pending-row-${gymId}`)?.remove();
+            location.reload();
+        })
+        .catch(() => alert("❌ Failed"));
+}
+
+function rejectGym(gymId) {
+    const reason = prompt("Rejection reason (optional):");
+    if (reason === null) return;
+    fetch(`/admin/reject-gym/${gymId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason })
+    })
+    .then(r => r.json())
+    .then(d => {
+        alert("❌ " + d.message);
+        document.getElementById(`pending-row-${gymId}`)?.remove();
+        location.reload();
+    });
+}
+
+// --------------------
 // TOGGLE GYM
 // --------------------
 function toggleGym(gymId, btn) {
     if (!confirm("Change this gym's status?")) return;
-
     fetch(`/admin/toggle-gym/${gymId}`, { method: "POST" })
-        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(r => r.json())
         .then(data => {
             const badge = document.getElementById(`badge-${gymId}`);
             if (data.is_active) {
-                badge.textContent = "Active";
-                badge.className   = "badge badge-active";
+                badge.textContent = "Active";   badge.className = "badge badge-active";
                 btn.textContent   = "Disable";
             } else {
-                badge.textContent = "Disabled";
-                badge.className   = "badge badge-disabled";
+                badge.textContent = "Disabled"; badge.className = "badge badge-disabled";
                 btn.textContent   = "Enable";
             }
             loadLogs(null);
         })
-        .catch(() => alert("❌ Failed to update gym status"));
+        .catch(() => alert("❌ Failed"));
 }
 
 // --------------------
 // RENEW MODAL
 // --------------------
 function openRenew(gymId, gymName) {
-    document.getElementById("renewGymId").value = gymId;
+    document.getElementById("renewGymId").value    = gymId;
     document.getElementById("renewGymName").textContent = gymName;
     document.getElementById("renewModal").classList.add("open");
 }
-
-function closeRenew() {
-    document.getElementById("renewModal").classList.remove("open");
-}
+function closeRenew() { document.getElementById("renewModal").classList.remove("open"); }
 
 function confirmRenew() {
     const gymId = document.getElementById("renewGymId").value;
     const days  = parseInt(document.getElementById("renewDays").value);
-
     fetch(`/admin/renew-gym/${gymId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ days })
     })
-    .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-    .then(data => {
-        closeRenew();
-        alert(`✅ Renewed until ${data.new_expiry}`);
-        location.reload();
-    })
+    .then(r => r.json())
+    .then(d => { closeRenew(); alert(`✅ Renewed until ${d.new_expiry}`); location.reload(); })
     .catch(() => alert("❌ Renewal failed"));
 }
-
-document.getElementById("renewModal").addEventListener("click", function(e) {
-    if (e.target === this) closeRenew();
-});
+document.getElementById("renewModal").addEventListener("click", e => { if (e.target === e.currentTarget) closeRenew(); });
 
 // --------------------
 // DELETE GYM
 // --------------------
 function deleteGym(gymId) {
-    if (!confirm("⚠️ Delete this gym and all its members? This cannot be undone.")) return;
-
+    if (!confirm("⚠️ Delete this gym and all its members? Cannot be undone.")) return;
     fetch(`/admin/delete-gym/${gymId}`, { method: "DELETE" })
-        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-        .then(() => {
+        .then(r => r.json())
+        .then(d => {
+            alert(d.message || d.error);
             const row = document.getElementById(`gym-row-${gymId}`);
-            row.style.transition = "opacity 0.4s";
-            row.style.opacity    = "0";
-            setTimeout(() => row.remove(), 400);
+            if (row) { row.style.opacity = "0"; setTimeout(() => row.remove(), 400); }
             loadLogs(null);
         })
         .catch(() => alert("❌ Delete failed"));
 }
 
 // --------------------
-// ACTIVITY LOGS
+// ACTIVITY LOGS (table)
 // --------------------
 function loadLogs(gymId) {
     currentLogGymId = gymId;
     const title = document.getElementById("logTitle");
-    const list  = document.getElementById("logList");
-
-    const url = gymId ? `/admin/logs?gym_id=${gymId}` : "/admin/logs";
+    const body  = document.getElementById("logBody");
+    const url   = gymId ? `/admin/logs?gym_id=${gymId}` : "/admin/logs";
 
     fetch(url)
-        .then(res => res.json())
+        .then(r => r.json())
         .then(logs => {
-            if (title) title.textContent = gymId ? `📋 Logs — filtered` : "📋 All Activity Logs";
-
+            if (title) title.textContent = gymId ? "📋 Logs — filtered" : "📋 All Activity Logs";
             if (!logs.length) {
-                list.innerHTML = `<div style="text-align:center;color:var(--text-3);padding:20px;">No logs yet</div>`;
+                body.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--text-3);padding:20px;">No logs yet</td></tr>`;
                 return;
             }
-
-            list.innerHTML = logs.map(l => `
-                <div class="log-entry">
-                    <span class="log-gym">${l.gym_name || "System"}</span>
-                    <span class="log-action">${l.action}</span>
-                    <span class="log-time">${l.created_at}</span>
-                </div>
+            body.innerHTML = logs.map(l => `
+                <tr>
+                    <td class="log-gym-cell">${l.gym_name || "System"}</td>
+                    <td class="log-action-cell">${l.action}</td>
+                    <td class="log-time-cell">${l.created_at}</td>
+                </tr>
             `).join("");
         })
         .catch(err => console.error("loadLogs:", err));
@@ -304,114 +362,93 @@ function loadLogs(gymId) {
 function viewLogs(gymId, gymName) {
     document.getElementById("logsModalTitle").textContent = `📋 Logs — ${gymName}`;
     document.getElementById("logsModal").classList.add("open");
-
     const body = document.getElementById("logsModalBody");
-    body.innerHTML = `<div style="text-align:center;color:var(--text-3);padding:20px;">Loading…</div>`;
+    body.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--text-3);padding:20px;">Loading…</td></tr>`;
 
     fetch(`/admin/logs?gym_id=${gymId}`)
-        .then(res => res.json())
+        .then(r => r.json())
         .then(logs => {
             if (!logs.length) {
-                body.innerHTML = `<div style="text-align:center;color:var(--text-3);padding:20px;">No logs for this gym</div>`;
+                body.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--text-3);padding:20px;">No logs</td></tr>`;
                 return;
             }
-
             body.innerHTML = logs.map(l => `
-                <div class="log-entry">
-                    <span class="log-action">${l.action}</span>
-                    <span class="log-time">${l.created_at}</span>
-                </div>
+                <tr>
+                    <td class="log-action-cell">${l.action}</td>
+                    <td class="log-time-cell">${l.created_at}</td>
+                </tr>
             `).join("");
         });
 }
 
-function closeLogsModal() {
-    document.getElementById("logsModal").classList.remove("open");
-}
-
-document.getElementById("logsModal").addEventListener("click", function(e) {
-    if (e.target === this) closeLogsModal();
-});
+function closeLogsModal() { document.getElementById("logsModal").classList.remove("open"); }
+document.getElementById("logsModal").addEventListener("click", e => { if (e.target === e.currentTarget) closeLogsModal(); });
 
 // --------------------
-// EXPORT
+// EXPORT MEMBERS
 // --------------------
-function exportCSV() {
-    window.location.href = "/export/members/csv";
-}
+function exportCSV()   { window.location.href = "/export/members/csv"; }
 
 function exportExcel() {
-    fetch("/export/members/json")
-        .then(res => res.json())
-        .then(data => {
-            if (!data.length) { alert("No members to export"); return; }
-
-            const headers = Object.keys(data[0]);
-            const rows    = data.map(r => headers.map(h => `"${(r[h] || "").toString().replace(/"/g, '""')}"`).join(","));
-            const csv     = [headers.join(","), ...rows].join("\n");
-
-            const blob = new Blob([csv], { type: "text/csv" });
-            const a    = document.createElement("a");
-            a.href     = URL.createObjectURL(blob);
-            a.download = "members.xlsx.csv";
-            a.click();
-        })
-        .catch(() => alert("❌ Export failed"));
+    fetch("/export/members/json").then(r => r.json()).then(data => {
+        if (!data.length) { alert("No members"); return; }
+        const headers = Object.keys(data[0]);
+        const rows    = data.map(r => headers.map(h => `"${(r[h]||"").toString().replace(/"/g,'""')}"`).join(","));
+        const blob    = new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv" });
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+        a.download = "members.csv"; a.click();
+    });
 }
 
 function exportPDF() {
-    fetch("/export/members/json")
-        .then(res => res.json())
-        .then(data => {
-            if (!data.length) { alert("No members to export"); return; }
+    fetch("/export/members/json").then(r => r.json()).then(data => {
+        if (!data.length) { alert("No members"); return; }
+        const win  = window.open("", "_blank");
+        const rows = data.map(m => `<tr><td>${m.ID}</td><td>${m.Name}</td><td>${m.Phone}</td>
+            <td>${m.Email}</td><td>${m["Join Date"]}</td><td>${m.Expiry}</td><td>${m.Gym}</td></tr>`).join("");
+        win.document.write(`<!DOCTYPE html><html><head><title>Members Export</title>
+            <style>body{font-family:Arial,sans-serif;padding:20px;font-size:12px}
+            table{width:100%;border-collapse:collapse}
+            th{background:#4f46e5;color:white;padding:8px 10px;text-align:left}
+            td{padding:7px 10px;border-bottom:1px solid #eee}
+            tr:nth-child(even) td{background:#f9fafb}
+            @media print{button{display:none}}</style></head><body>
+            <h2>Members Report — ${new Date().toLocaleDateString()}</h2>
+            <table><thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Email</th>
+            <th>Join Date</th><th>Expiry</th><th>Gym</th></tr></thead>
+            <tbody>${rows}</tbody></table>
+            <script>window.onload=()=>window.print();<\/script></body></html>`);
+        win.document.close();
+    });
+}
 
-            const win = window.open("", "_blank");
-            const rows = data.map(m => `
-                <tr>
-                    <td>${m.ID}</td>
-                    <td>${m.Name}</td>
-                    <td>${m.Phone}</td>
-                    <td>${m.Email}</td>
-                    <td>${m["Join Date"]}</td>
-                    <td>${m.Expiry}</td>
-                    <td>${m.Gym}</td>
-                </tr>
-            `).join("");
-
-            win.document.write(`
-                <!DOCTYPE html><html><head>
-                <title>Members Export</title>
-                <style>
-                    body { font-family: Arial, sans-serif; padding: 20px; }
-                    h2 { margin-bottom: 16px; }
-                    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-                    th { background: #4f46e5; color: white; padding: 8px 10px; text-align: left; }
-                    td { padding: 7px 10px; border-bottom: 1px solid #eee; }
-                    tr:nth-child(even) td { background: #f9fafb; }
-                </style>
-                </head><body>
-                <h2>Members Report — ${new Date().toLocaleDateString()}</h2>
-                <table>
-                    <thead><tr>
-                        <th>ID</th><th>Name</th><th>Phone</th><th>Email</th>
-                        <th>Join Date</th><th>Expiry</th><th>Gym</th>
-                    </tr></thead>
-                    <tbody>${rows}</tbody>
-                </table>
-                <script>window.onload=()=>window.print();<\/script>
-                </body></html>
-            `);
-            win.document.close();
-        })
-        .catch(() => alert("❌ Export failed"));
+// --------------------
+// EXPORT LOGS PDF
+// --------------------
+function exportLogPDF() {
+    const url = currentLogGymId ? `/export/logs/json?gym_id=${currentLogGymId}` : "/export/logs/json";
+    fetch(url).then(r => r.json()).then(logs => {
+        if (!logs.length) { alert("No logs"); return; }
+        const win  = window.open("", "_blank");
+        const rows = logs.map(l => `<tr><td>${l.Gym || ""}</td><td>${l.Action}</td><td>${l.Time}</td></tr>`).join("");
+        win.document.write(`<!DOCTYPE html><html><head><title>Activity Logs</title>
+            <style>body{font-family:Arial,sans-serif;padding:20px;font-size:12px}
+            table{width:100%;border-collapse:collapse}
+            th{background:#1e1b4b;color:white;padding:8px 10px;text-align:left}
+            td{padding:7px 10px;border-bottom:1px solid #eee}
+            @media print{button{display:none}}</style></head><body>
+            <h2>Activity Log Report — ${new Date().toLocaleString()}</h2>
+            <table><thead><tr><th>Gym</th><th>Action</th><th>Time</th></tr></thead>
+            <tbody>${rows}</tbody></table>
+            <script>window.onload=()=>window.print();<\/script></body></html>`);
+        win.document.close();
+    });
 }
 
 // --------------------
 // INIT
 // --------------------
-window.onload = function() {
-    loadLogs(null);
-};
+window.onload = () => loadLogs(null);
 </script>
 </body>
 </html>

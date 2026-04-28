@@ -1,22 +1,20 @@
 """
-Run this ONCE to migrate your database:
-    python migrate.py
+Run ONCE: python migrate.py
 
 What it does:
-  1. Adds is_active column to gym table (default True)
-  2. Adds created_at column to gym table
-  3. Adds is_deleted column to gym table (default False)
-  4. Adds subscription_expiry column to gym table
-  5. Adds is_active column to plan table (default True)
-  6. Creates payment + audit_log tables
-  7. Hashes any remaining plain-text passwords
+  1. Adds phone, approval_status columns to gym table
+  2. Adds price, gym_id columns to plan table
+  3. Adds amount_paid to membership_history table
+  4. Sets all existing gyms to approved (so they don't get locked out)
+  5. Hashes any remaining plain-text passwords
+  6. Creates new tables (activity_log, payment) if not exist
 """
 
-from app import app, db, Gym
+from app import app, db, Gym, Plan, MembershipHistory
 from werkzeug.security import generate_password_hash
 
 
-def run_sql(conn, sql, label):
+def run(conn, sql, label):
     try:
         conn.execute(db.text(sql))
         conn.commit()
@@ -24,71 +22,84 @@ def run_sql(conn, sql, label):
     except Exception as e:
         conn.rollback()
         if "already exists" in str(e).lower():
-            print(f"  ℹ️  {label} — already exists, skipping")
+            print(f"  ℹ️  {label} — already exists, skipped")
         else:
-            print(f"  ❌ {label} FAILED: {e}")
+            print(f"  ❌ {label}: {e}")
 
 
 with app.app_context():
-    with db.engine.connect() as conn:
 
+    with db.engine.connect() as conn:
+        conn.execute(db.text(
+            "SELECT setval('plan_id_seq', (SELECT MAX(id) FROM plan))"
+        ))
+        conn.commit()
+        print("✅ Plan sequence fixed")
         print("\n── Gym table ──")
-        run_sql(conn,
-            "ALTER TABLE gym ADD COLUMN is_active BOOLEAN DEFAULT TRUE NOT NULL",
-            "is_active column"
-        )
-        run_sql(conn,
-            "ALTER TABLE gym ADD COLUMN created_at TIMESTAMP DEFAULT NOW()",
-            "created_at column"
-        )
-        run_sql(conn,
+        run(conn,
+            "ALTER TABLE gym ADD COLUMN phone VARCHAR(20)",
+            "phone column")
+        run(conn,
+            "ALTER TABLE gym ADD COLUMN approval_status VARCHAR(20) DEFAULT 'approved'",
+            "approval_status column")
+        run(conn,
             "ALTER TABLE gym ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE NOT NULL",
-            "is_deleted column"
-        )
-        run_sql(conn,
+            "is_deleted column")
+        run(conn,
+            "ALTER TABLE gym ADD COLUMN is_active BOOLEAN DEFAULT TRUE NOT NULL",
+            "is_active column")
+        run(conn,
+            "ALTER TABLE gym ADD COLUMN created_at TIMESTAMP DEFAULT NOW()",
+            "created_at column")
+        run(conn,
             "ALTER TABLE gym ADD COLUMN subscription_expiry DATE",
-            "subscription_expiry column"
-        )
+            "subscription_expiry column")
 
         print("\n── Plan table ──")
-        run_sql(conn,
+        run(conn,
+            "ALTER TABLE plan ADD COLUMN price INTEGER DEFAULT 0",
+            "price column")
+        run(conn,
+            "ALTER TABLE plan ADD COLUMN gym_id INTEGER REFERENCES gym(id)",
+            "gym_id column")
+        run(conn,
             "ALTER TABLE plan ADD COLUMN is_active BOOLEAN DEFAULT TRUE NOT NULL",
-            "is_active column"
-        )
+            "is_active column")
 
-    # Create new tables (payment, audit_log) — safe to run multiple times
+        print("\n── MembershipHistory table ──")
+        run(conn,
+            "ALTER TABLE membership_history ADD COLUMN amount_paid INTEGER DEFAULT 0",
+            "amount_paid column")
+
+        print("\n── Set existing gyms to approved ──")
+        run(conn,
+            "UPDATE gym SET approval_status = 'approved', is_active = TRUE WHERE role = 'gym'",
+            "Existing gyms approved")
+
+    # Create any missing tables (activity_log, payment, etc.)
     db.create_all()
-    print("\n  ✅ payment + audit_log tables ready")
+    print("\n  ✅ New tables created (if not exist)")
 
-    # Hash any remaining plain-text passwords
+    # Hash plain-text passwords
     print("\n── Passwords ──")
-    gyms  = Gym.query.all()
     fixed = 0
-    for gym in gyms:
+    for gym in Gym.query.all():
         if not gym.password.startswith(("pbkdf2:", "scrypt:", "bcrypt:")):
-            print(f"  ⚠️  Hashing plain-text password for: {gym.email}")
+            print(f"  ⚠️  Hashing password for: {gym.email}")
             gym.password = generate_password_hash(
                 gym.password, method='pbkdf2:sha256', salt_length=16
             )
             fixed += 1
-
     if fixed:
         db.session.commit()
-        print(f"  ✅ Hashed {fixed} plain-text password(s)")
+        print(f"  ✅ Hashed {fixed} password(s)")
     else:
         print("  ℹ️  All passwords already hashed")
 
-    print("\n🎉 Migration complete! Run: python app.py")
-    print("\n── To create your admin account, run this in a Python shell ──\n")
-    print("  from app import app, db, Gym")
-    print("  from werkzeug.security import generate_password_hash")
-    print("  with app.app_context():")
-    print("      admin = Gym(")
-    print("          name='Super Admin',")
-    print("          email='YOUR_EMAIL',")
-    print("          password=generate_password_hash('YOUR_PASSWORD', method='pbkdf2:sha256', salt_length=16),")
-    print("          role='admin'")
-    print("      )")
-    print("      db.session.add(admin)")
-    print("      db.session.commit()")
-    print("      print('Admin created!')")
+    print("\n🎉 Migration complete — run: python app.py")
+    print("\n── To set up Fast2SMS (optional) ──")
+    print("  Add to your .env file:")
+    print("  FAST2SMS_API_KEY=your_key_from_fast2sms.com")
+    print("\n── To set ADMIN_EMAILS ──")
+    print("  Add to your .env file:")
+    print("  ADMIN_EMAILS=your@email.com")

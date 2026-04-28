@@ -4,7 +4,7 @@
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>{{ gym.name }} Members — Admin</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"/>
 </head>
 <body>
 
@@ -18,12 +18,12 @@
 
 <div class="container">
 
-    <!-- GYM INFO CARD -->
+    <!-- GYM INFO -->
     <div class="card">
         <div class="section-header">
             <div>
                 <div class="card-title">🏢 {{ gym.name }}</div>
-                <div style="font-size:13px; color:var(--text-3); margin-top:2px;">
+                <div style="font-size:13px;color:var(--text-3);margin-top:2px;">
                     {{ gym.email }}
                     &nbsp;·&nbsp;
                     Joined {{ gym.created_at.strftime('%d %b %Y') if gym.created_at else '—' }}
@@ -36,6 +36,7 @@
             </span>
         </div>
 
+        <!-- STATS -->
         <div class="stats-grid" style="margin-top:16px;">
             <div class="stat-card accent-blue">
                 <div class="stat-label">Total Members</div>
@@ -50,14 +51,37 @@
                 <div class="stat-value" id="expiredCount">—</div>
             </div>
         </div>
+
+        <!-- REVENUE -->
+        <div style="margin-top:16px;">
+            <div class="card-title" style="margin-bottom:12px;">💰 Revenue</div>
+            <div class="revenue-grid">
+                <div class="revenue-card">
+                    <div class="rev-label">This Month</div>
+                    <div class="rev-value">₹{{ rev_this_month }}</div>
+                </div>
+                <div class="revenue-card">
+                    <div class="rev-label">Last Month</div>
+                    <div class="rev-value">₹{{ rev_last_month }}</div>
+                </div>
+                <div class="revenue-card">
+                    <div class="rev-label">This Year</div>
+                    <div class="rev-value">₹{{ rev_this_year }}</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- MEMBERS TABLE -->
     <div class="card">
         <div class="section-header">
             <div class="card-title">👥 Members</div>
-            <input type="text" id="searchInput" placeholder="🔍 Search name / phone…"
-                   oninput="filterTable()" style="width:210px;" />
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="searchInput" placeholder="🔍 Search…"
+                       oninput="filterTable()" style="width:200px;"/>
+                <button class="btn btn-sm btn-success" onclick="exportCSV()">⬇ CSV</button>
+                <button class="btn btn-sm btn-danger"  onclick="exportPDF()">⬇ PDF</button>
+            </div>
         </div>
 
         {% if members %}
@@ -65,26 +89,18 @@
             <table id="membersTable">
                 <thead>
                     <tr>
-                        <th>ID</th>
-                        <th>Name</th>
-                        <th>Phone</th>
-                        <th>Email</th>
-                        <th>Age</th>
-                        <th>Gender</th>
-                        <th>Join Date</th>
-                        <th>Expiry</th>
-                        <th>Status</th>
+                        <th>ID</th><th>Name</th><th>Phone</th><th>Email</th>
+                        <th>Age</th><th>Gender</th><th>Join Date</th>
+                        <th>Expiry</th><th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for m in members %}
                     <tr>
-                        <td style="color:var(--text-3); font-size:12px;">{{ m.unique_id }}</td>
+                        <td style="color:var(--text-3);font-size:12px;">{{ m.unique_id }}</td>
                         <td>
-                            <!-- FIX: pass ?from=/admin/gym/ID/members so back button is correct -->
                             <a href="/member/{{ m.unique_id }}?from=/admin/gym/{{ gym.id }}/members"
-                               target="_blank"
-                               style="font-weight:600; color:var(--primary);">
+                               target="_blank" style="font-weight:600;color:var(--primary);">
                                 {{ m.name }}
                             </a>
                         </td>
@@ -94,17 +110,14 @@
                         <td>{{ m.gender or "—" }}</td>
                         <td style="color:var(--text-2);">{{ m.join_date }}</td>
                         <td>{{ m.expiry_date }}</td>
-                        <td>
-                            <span class="badge" data-expiry="{{ m.expiry_date }}">—</span>
-                        </td>
+                        <td><span class="badge" data-expiry="{{ m.expiry_date }}">—</span></td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
-
         {% else %}
-        <div style="text-align:center; padding:40px; color:var(--text-3);">
+        <div style="text-align:center;padding:40px;color:var(--text-3);">
             This gym has no members yet.
         </div>
         {% endif %}
@@ -113,42 +126,60 @@
 </div>
 
 <script>
-    // Set expiry badges + count active/expired via JS (no Jinja date math)
-    (function () {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        let active = 0, expired = 0;
+// Expiry badges
+(function () {
+    const today = new Date(); today.setHours(0,0,0,0);
+    let active = 0, expired = 0;
+    document.querySelectorAll("[data-expiry]").forEach(badge => {
+        const diff = Math.ceil((new Date(badge.dataset.expiry) - today) / 86400000);
+        if (diff < 0) {
+            badge.textContent = "Expired";       badge.className = "badge badge-expired"; expired++;
+        } else if (diff <= 3) {
+            badge.textContent = `Expiring (${diff}d)`; badge.className = "badge badge-expiring"; active++;
+        } else {
+            badge.textContent = "Active";        badge.className = "badge badge-active"; active++;
+        }
+    });
+    document.getElementById("activeCount").textContent  = active;
+    document.getElementById("expiredCount").textContent = expired;
+})();
 
-        document.querySelectorAll("[data-expiry]").forEach(badge => {
-            const expiry   = new Date(badge.dataset.expiry);
-            const diffDays = Math.ceil((expiry - today) / 86400000);
+function filterTable() {
+    const q = document.getElementById("searchInput").value.toLowerCase();
+    document.querySelectorAll("#membersTable tbody tr").forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(q) ? "" : "none";
+    });
+}
 
-            if (diffDays < 0) {
-                badge.textContent = "Expired";
-                badge.className   = "badge badge-expired";
-                expired++;
-            } else if (diffDays <= 3) {
-                badge.textContent = `Expiring (${diffDays}d)`;
-                badge.className   = "badge badge-expiring";
-                active++;
-            } else {
-                badge.textContent = "Active";
-                badge.className   = "badge badge-active";
-                active++;
-            }
-        });
+// Export this gym's members as CSV via admin endpoint
+function exportCSV() {
+    window.location.href = "/export/members/csv?gym_id={{ gym.id }}";
+}
 
-        document.getElementById("activeCount").textContent  = active;
-        document.getElementById("expiredCount").textContent = expired;
-    })();
+function exportPDF() {
+    const rows = [...document.querySelectorAll("#membersTable tbody tr")]
+        .filter(r => r.style.display !== "none")
+        .map(r => {
+            const cells = r.querySelectorAll("td");
+            return `<tr>${[...cells].slice(0,8).map(c => `<td>${c.innerText}</td>`).join("")}</tr>`;
+        }).join("");
 
-    function filterTable() {
-        const q = document.getElementById("searchInput").value.toLowerCase();
-        document.querySelectorAll("#membersTable tbody tr").forEach(row => {
-            row.style.display = row.innerText.toLowerCase().includes(q) ? "" : "none";
-        });
-    }
+    const win = window.open("", "_blank");
+    win.document.write(`<!DOCTYPE html><html><head><title>{{ gym.name }} Members</title>
+        <style>body{font-family:Arial,sans-serif;padding:20px;font-size:12px}
+        table{width:100%;border-collapse:collapse}
+        th{background:#4f46e5;color:white;padding:8px 10px;text-align:left}
+        td{padding:7px 10px;border-bottom:1px solid #eee}
+        tr:nth-child(even) td{background:#f9fafb}
+        @media print{button{display:none}}</style></head><body>
+        <h2>{{ gym.name }} — Members Report</h2>
+        <p style="color:#666;margin-bottom:16px;">Generated: ${new Date().toLocaleString()} | Total: ${document.querySelectorAll("#membersTable tbody tr").length}</p>
+        <table><thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Email</th>
+        <th>Age</th><th>Gender</th><th>Join Date</th><th>Expiry</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+        <script>window.onload=()=>window.print();<\/script></body></html>`);
+    win.document.close();
+}
 </script>
-
 </body>
 </html>

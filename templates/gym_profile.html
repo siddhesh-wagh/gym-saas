@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>My Profile — GymSaaS</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"/>
+</head>
+<body>
+
+<div class="topbar">
+    <span class="topbar-brand">🏋️ GymSaaS</span>
+    <div class="topbar-right">
+        <a href="/dashboard" class="nav-link">← Dashboard</a>
+        <a href="/logout" class="logout-link">Logout</a>
+    </div>
+</div>
+
+<div class="container" style="max-width:700px;">
+
+    {% if error %}   <div class="banner banner-danger">{{ error }}</div>     {% endif %}
+    {% if success %} <div class="banner banner-success">✅ {{ success }}</div>{% endif %}
+
+    <!-- PROFILE HEADER -->
+    <div class="card">
+        <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+            <div class="gym-profile-avatar">
+                {{ gym.name[0].upper() }}
+            </div>
+            <div class="gym-profile-info">
+                <div class="gym-profile-name">{{ gym.name }}</div>
+                <div style="color:var(--text-2); font-size:14px;">{{ gym.email }}</div>
+                {% if gym.phone %}
+                <div style="color:var(--text-3); font-size:13px;">📱 {{ gym.phone }}</div>
+                {% endif %}
+                <div style="margin-top:8px;">
+                    {% if gym.subscription_expiry %}
+                        {% set today = namespace(d=none) %}
+                        <span class="badge badge-active">
+                            Subscription: {{ gym.subscription_expiry }}
+                        </span>
+                    {% else %}
+                        <span class="badge badge-disabled">No subscription</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- EDIT PROFILE -->
+    <div class="card">
+        <div class="card-title">✏️ Edit Profile</div>
+        <form method="POST" action="/profile/update">
+            <div class="form-grid">
+                <div class="form-group full">
+                    <label>Gym Name</label>
+                    <input type="text" name="name" value="{{ gym.name }}" required/>
+                </div>
+                <div class="form-group full">
+                    <label>Email <span style="color:var(--text-3);font-weight:400;">(read-only)</span></label>
+                    <input type="email" value="{{ gym.email }}" disabled
+                           style="background:var(--surface-2);color:var(--text-3);"/>
+                </div>
+            </div>
+            <div style="margin-top:8px;">
+                <button type="submit">Save Changes</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- CHANGE PASSWORD -->
+    <div class="card">
+        <div class="card-title">🔒 Change Password</div>
+        <form method="POST" action="/profile/update">
+            <div class="form-grid">
+                <div class="form-group full">
+                    <label>Current Password</label>
+                    <input type="password" name="current_password" placeholder="Enter current password"/>
+                </div>
+                <div class="form-group">
+                    <label>New Password</label>
+                    <input type="password" name="new_password" placeholder="Min. 8 characters" minlength="8"/>
+                </div>
+                <div class="form-group">
+                    <label>Confirm New Password</label>
+                    <input type="password" id="confirmPass" placeholder="Re-enter new password"/>
+                </div>
+                <!-- hidden name field required by route -->
+                <input type="hidden" name="name" value="{{ gym.name }}"/>
+            </div>
+            <div style="margin-top:8px;">
+                <button type="submit" onclick="return checkPass()">Update Password</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- MANAGE PLANS -->
+    <div class="card">
+        <div class="section-header">
+            <div class="card-title">💳 My Membership Plans</div>
+            <button class="btn btn-sm" onclick="openAddPlan()">+ Add Plan</button>
+        </div>
+        <div id="plansTable">
+            <div style="text-align:center;color:var(--text-3);padding:20px;">Loading…</div>
+        </div>
+    </div>
+
+    <!-- DANGER ZONE -->
+    <div class="card">
+        <div class="danger-zone">
+            <div class="danger-zone-title">⚠️ Danger Zone</div>
+            <p style="font-size:14px;color:var(--text-2);margin-bottom:16px;">
+                Permanently delete all members from your gym. This action requires your password and cannot be undone.
+            </p>
+            <button class="btn btn-outline-danger" onclick="openDeleteAll()">
+                🗑 Delete All Members
+            </button>
+        </div>
+    </div>
+
+</div>
+
+<!-- ADD PLAN MODAL -->
+<div class="modal-overlay" id="addPlanModal">
+    <div class="modal">
+        <div class="modal-title">➕ Add Membership Plan</div>
+        <div class="form-grid">
+            <div class="form-group full">
+                <label>Plan Name *</label>
+                <input type="text" id="planName" placeholder="e.g. Monthly, Quarterly"/>
+            </div>
+            <div class="form-group">
+                <label>Duration (days) <span style="color:var(--text-3);font-weight:400;">0 = walk-in</span></label>
+                <input type="number" id="planDays" placeholder="30" min="0"/>
+            </div>
+            <div class="form-group">
+                <label>Price (₹)</label>
+                <input type="number" id="planPrice" placeholder="500" min="0"/>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeAddPlan()">Cancel</button>
+            <button class="btn" onclick="savePlan()">Add Plan</button>
+        </div>
+    </div>
+</div>
+
+<!-- DELETE ALL MODAL -->
+<div class="modal-overlay" id="deleteAllModal">
+    <div class="modal">
+        <div class="modal-title" style="color:var(--danger);">⚠️ Delete All Members</div>
+        <p style="font-size:14px;color:var(--text-2);margin-bottom:16px;">
+            This will permanently delete <strong>every member</strong> in your gym.
+            Enter your password to confirm.
+        </p>
+        <div class="form-group">
+            <label>Your Password</label>
+            <input type="password" id="deleteAllPass" placeholder="Enter your password"/>
+        </div>
+        <div id="deleteAllResult"></div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeDeleteAll()">Cancel</button>
+            <button class="btn btn-danger" onclick="confirmDeleteAll()">Delete All Members</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// --------------------
+// PASSWORD CONFIRM
+// --------------------
+function checkPass() {
+    const np = document.querySelector("input[name='new_password']").value;
+    const cp = document.getElementById("confirmPass").value;
+    if (np && np !== cp) {
+        alert("Passwords do not match");
+        return false;
+    }
+    return true;
+}
+
+// --------------------
+// LOAD PLANS
+// --------------------
+function loadPlans() {
+    fetch("/gym/plans")
+        .then(r => r.json())
+        .then(plans => {
+            const wrap = document.getElementById("plansTable");
+            if (!plans.length) {
+                wrap.innerHTML = `<div style="text-align:center;color:var(--text-3);padding:20px;">No plans yet. Add one above.</div>`;
+                return;
+            }
+
+            wrap.innerHTML = `
+                <div class="table-wrap">
+                <table>
+                    <thead><tr>
+                        <th>Name</th><th>Duration</th><th>Price</th><th>Type</th><th>Actions</th>
+                    </tr></thead>
+                    <tbody>
+                    ${plans.map(p => `
+                        <tr>
+                            <td><strong>${p.name}</strong></td>
+                            <td>${p.duration_days === 0 ? "Walk-in" : p.duration_days + " days"}</td>
+                            <td>₹${p.price}</td>
+                            <td><span class="badge ${p.is_custom ? 'badge-info' : 'badge-active'}">
+                                ${p.is_custom ? "Custom" : "Global"}
+                            </span></td>
+                            <td>
+                                ${p.is_custom ? `
+                                    <button class="btn btn-sm btn-ghost" onclick='openEditPlan(${JSON.stringify(p)})'>Edit</button>
+                                    <button class="btn btn-sm btn-danger" onclick="deletePlan(${p.id})">Remove</button>
+                                ` : '<span style="color:var(--text-3);font-size:12px;">Admin plan</span>'}
+                            </td>
+                        </tr>
+                    `).join("")}
+                    </tbody>
+                </table>
+                </div>
+            `;
+        });
+}
+
+// --------------------
+// ADD PLAN MODAL
+// --------------------
+function openAddPlan() {
+    document.getElementById("planName").value  = "";
+    document.getElementById("planDays").value  = "30";
+    document.getElementById("planPrice").value = "0";
+    document.getElementById("addPlanModal").classList.add("open");
+}
+function closeAddPlan() {
+    document.getElementById("addPlanModal").classList.remove("open");
+}
+
+function savePlan() {
+    const name  = document.getElementById("planName").value.trim();
+    const days  = parseInt(document.getElementById("planDays").value) || 0;
+    const price = parseInt(document.getElementById("planPrice").value) || 0;
+
+    if (!name) { alert("Plan name is required"); return; }
+
+    fetch("/gym/plans/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, duration_days: days, price })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.error) { alert("❌ " + d.error); return; }
+        closeAddPlan();
+        loadPlans();
+    });
+}
+
+// --------------------
+// EDIT PLAN
+// --------------------
+function openEditPlan(plan) {
+    document.getElementById("planName").value  = plan.name;
+    document.getElementById("planDays").value  = plan.duration_days;
+    document.getElementById("planPrice").value = plan.price;
+    document.getElementById("addPlanModal").classList.add("open");
+
+    // Override save button for update
+    const saveBtn = document.querySelector("#addPlanModal .btn:not(.btn-ghost)");
+    saveBtn.textContent = "Update Plan";
+    saveBtn.onclick = () => updatePlan(plan.id);
+}
+
+function updatePlan(planId) {
+    const name  = document.getElementById("planName").value.trim();
+    const days  = parseInt(document.getElementById("planDays").value) || 0;
+    const price = parseInt(document.getElementById("planPrice").value) || 0;
+
+    fetch(`/gym/plans/update/${planId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, duration_days: days, price })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.error) { alert("❌ " + d.error); return; }
+        closeAddPlan();
+        loadPlans();
+        // Reset save button
+        const saveBtn = document.querySelector("#addPlanModal .btn:not(.btn-ghost)");
+        saveBtn.textContent = "Add Plan";
+        saveBtn.onclick = savePlan;
+    });
+}
+
+function deletePlan(planId) {
+    if (!confirm("Remove this plan?")) return;
+    fetch(`/gym/plans/delete/${planId}`, { method: "DELETE" })
+        .then(r => r.json())
+        .then(() => loadPlans());
+}
+
+// --------------------
+// DELETE ALL MEMBERS
+// --------------------
+function openDeleteAll() {
+    document.getElementById("deleteAllPass").value = "";
+    document.getElementById("deleteAllResult").innerHTML = "";
+    document.getElementById("deleteAllModal").classList.add("open");
+}
+function closeDeleteAll() {
+    document.getElementById("deleteAllModal").classList.remove("open");
+}
+
+function confirmDeleteAll() {
+    const pass = document.getElementById("deleteAllPass").value;
+    if (!pass) { alert("Enter your password"); return; }
+
+    fetch("/delete-all-members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pass })
+    })
+    .then(r => r.json())
+    .then(d => {
+        const res = document.getElementById("deleteAllResult");
+        if (d.error) {
+            res.innerHTML = `<div class="banner banner-danger" style="margin-top:12px;">❌ ${d.error}</div>`;
+        } else {
+            res.innerHTML = `<div class="banner banner-success" style="margin-top:12px;">✅ ${d.message}</div>`;
+            setTimeout(() => closeDeleteAll(), 2000);
+        }
+    });
+}
+
+// Close modals on outside click
+["addPlanModal","deleteAllModal"].forEach(id => {
+    document.getElementById(id).addEventListener("click", function(e) {
+        if (e.target === this) this.classList.remove("open");
+    });
+});
+
+window.onload = loadPlans;
+</script>
+</body>
+</html>

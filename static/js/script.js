@@ -12,9 +12,7 @@ function showResult(elId, msg, type) {
 
 function expiryBadge(dateStr) {
     const today    = new Date(); today.setHours(0,0,0,0);
-    const expiry   = new Date(dateStr);
-    const diffDays = Math.ceil((expiry - today) / 86400000);
-
+    const diffDays = Math.ceil((new Date(dateStr) - today) / 86400000);
     if (diffDays < 0)  return `<span class="badge badge-expired">Expired</span>`;
     if (diffDays <= 3) return `<span class="badge badge-expiring">Expiring (${diffDays}d)</span>`;
     return `<span class="badge badge-active">Active</span>`;
@@ -31,25 +29,23 @@ function loadPlans() {
             ["#plan_id", "#csvPlanId", "#renewPlanId"].forEach(sel => {
                 const el = document.querySelector(sel);
                 if (!el) return;
-
                 const prev = el.value;
                 el.innerHTML = "";
 
                 if (!plans.length) {
-                    el.innerHTML = `<option value="">No plans available</option>`;
+                    el.innerHTML = `<option value="">No plans available — add in Profile</option>`;
                     return;
                 }
 
                 plans.forEach(p => {
                     const opt = document.createElement("option");
-                    opt.value       = p.id;
-                    opt.textContent = `${p.name} (${p.duration_days} days)`;
+                    opt.value = p.id;
+                    const dur = p.duration_days === 0 ? "Walk-in" : p.duration_days + " days";
+                    opt.textContent = `${p.name} (${dur})${p.price ? " — ₹" + p.price : ""}`;
                     el.appendChild(opt);
                 });
 
-                if (prev && el.querySelector(`option[value="${prev}"]`)) {
-                    el.value = prev;
-                }
+                if (prev && el.querySelector(`option[value="${prev}"]`)) el.value = prev;
             });
         })
         .catch(err => console.error("loadPlans:", err));
@@ -61,11 +57,8 @@ function loadPlans() {
 // --------------------
 function loadMembers() {
     fetch("/members")
-        .then(res => { if (!res.ok) throw new Error("Failed"); return res.json(); })
-        .then(data => {
-            renderTable(data);
-            updateStats(data);
-        })
+        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(data => { renderTable(data); updateStats(data); })
         .catch(err => console.error("loadMembers:", err));
 }
 
@@ -89,8 +82,10 @@ function renderTable(data) {
             <td>${m.age || "—"}</td>
             <td>${m.gender || "—"}</td>
             <td>${m.photo
-                ? `<a href="${m.photo}" target="_blank"><img src="${m.photo}"
-                    style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--border);" /></a>`
+                ? `<a href="${m.photo}" target="_blank">
+                     <img src="${m.photo}" style="width:32px;height:32px;border-radius:50%;
+                     object-fit:cover;border:2px solid var(--border);"/>
+                   </a>`
                 : "—"}</td>
             <td>${m.expiry_date || "—"}</td>
             <td>${expiryBadge(m.expiry_date)}</td>
@@ -109,8 +104,7 @@ function updateStats(data) {
     const active   = data.filter(m => new Date(m.expiry_date) >= today).length;
     const expired  = data.filter(m => new Date(m.expiry_date) < today).length;
     const expiring = data.filter(m => {
-        const d    = new Date(m.expiry_date);
-        const diff = Math.ceil((d - today) / 86400000);
+        const diff = Math.ceil((new Date(m.expiry_date) - today) / 86400000);
         return diff >= 0 && diff <= 3;
     }).length;
 
@@ -139,10 +133,8 @@ function filterTable() {
 // --------------------
 document.getElementById("memberForm").addEventListener("submit", function(e) {
     e.preventDefault();
-
     const btn = this.querySelector("button[type='submit']");
-    btn.textContent = "Adding…";
-    btn.disabled    = true;
+    btn.textContent = "Adding…"; btn.disabled = true;
 
     fetch("/add-member", { method: "POST", body: new FormData(this) })
         .then(res => res.json())
@@ -168,7 +160,6 @@ document.getElementById("memberForm").addEventListener("submit", function(e) {
 // --------------------
 function deleteMember(id) {
     if (!confirm("Delete this member?")) return;
-
     fetch(`/delete-member/${id}`, { method: "DELETE" })
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
         .then(() => { loadMembers(); loadAlerts(); loadLogs(); })
@@ -177,7 +168,7 @@ function deleteMember(id) {
 
 
 // --------------------
-// EDIT MODAL  — uses multipart FormData (supports photo upload)
+// EDIT MODAL
 // --------------------
 function openEdit(member) {
     document.getElementById("editId").value      = member.id;
@@ -186,31 +177,22 @@ function openEdit(member) {
     document.getElementById("editEmail").value   = member.email   || "";
     document.getElementById("editAge").value     = member.age     || "";
     document.getElementById("editGender").value  = member.gender  || "";
-    // FIX: address now populated correctly
     document.getElementById("editAddress").value = member.address || "";
 
-    // Clear previous photo file input
     const photoInput = document.getElementById("editPhoto");
     if (photoInput) photoInput.value = "";
 
-    // Show current photo thumbnail if exists
     const wrap = document.getElementById("currentPhotoWrap");
     const img  = document.getElementById("currentPhotoImg");
     if (wrap && img) {
-        if (member.photo) {
-            img.src          = member.photo;
-            wrap.style.display = "block";
-        } else {
-            wrap.style.display = "none";
-        }
+        if (member.photo) { img.src = member.photo; wrap.style.display = "block"; }
+        else              { wrap.style.display = "none"; }
     }
 
     document.getElementById("editModal").classList.add("open");
 }
 
-function closeEdit() {
-    document.getElementById("editModal").classList.remove("open");
-}
+function closeEdit() { document.getElementById("editModal").classList.remove("open"); }
 
 document.getElementById("editModal").addEventListener("click", function(e) {
     if (e.target === this) closeEdit();
@@ -218,8 +200,6 @@ document.getElementById("editModal").addEventListener("click", function(e) {
 
 function saveEdit() {
     const id = document.getElementById("editId").value;
-
-    // Use FormData so photo file upload works
     const fd = new FormData();
     fd.append("name",    document.getElementById("editName").value);
     fd.append("phone",   document.getElementById("editPhone").value);
@@ -229,9 +209,7 @@ function saveEdit() {
     fd.append("address", document.getElementById("editAddress").value);
 
     const photoFile = document.getElementById("editPhoto");
-    if (photoFile && photoFile.files[0]) {
-        fd.append("photo", photoFile.files[0]);
-    }
+    if (photoFile && photoFile.files[0]) fd.append("photo", photoFile.files[0]);
 
     fetch(`/update-member/${id}`, { method: "POST", body: fd })
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
@@ -250,12 +228,7 @@ function loadAlerts() {
             const card = document.getElementById("alertsCard");
             const list = document.getElementById("alertsList");
             if (!list) return;
-
-            if (!data.length) {
-                if (card) card.style.display = "none";
-                return;
-            }
-
+            if (!data.length) { if (card) card.style.display = "none"; return; }
             if (card) card.style.display = "block";
             list.innerHTML = data.map(m =>
                 `<li>⚠️ <strong>${m.name}</strong> — ${m.phone} — Expires: ${m.expiry_date}</li>`
@@ -266,25 +239,24 @@ function loadAlerts() {
 
 
 // --------------------
-// ACTIVITY LOG (gym owner view)
+// ACTIVITY LOG (table for gym owner)
 // --------------------
 function loadLogs() {
-    const list = document.getElementById("logList");
-    if (!list) return;
+    const body = document.getElementById("logBody");
+    if (!body) return;
 
     fetch("/my-logs")
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
         .then(logs => {
             if (!logs.length) {
-                list.innerHTML = `<div style="text-align:center;color:var(--text-3);padding:20px;">No activity yet</div>`;
+                body.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--text-3);padding:20px;">No activity yet</td></tr>`;
                 return;
             }
-
-            list.innerHTML = logs.map(l => `
-                <div class="log-entry">
-                    <span class="log-action">${l.action}</span>
-                    <span class="log-time">${l.created_at}</span>
-                </div>
+            body.innerHTML = logs.map(l => `
+                <tr>
+                    <td class="log-action-cell">${l.action}</td>
+                    <td class="log-time-cell">${l.created_at}</td>
+                </tr>
             `).join("");
         })
         .catch(err => console.error("loadLogs:", err));
@@ -303,16 +275,13 @@ function uploadCSV() {
     formData.append("plan_id", document.getElementById("csvPlanId").value);
 
     const btn = event.target;
-    btn.textContent = "Uploading…";
-    btn.disabled    = true;
+    btn.textContent = "Uploading…"; btn.disabled = true;
 
     fetch("/upload-csv", { method: "POST", body: formData })
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
         .then(data => {
             showResult("csvResult", `✅ Inserted: ${data.inserted} | Skipped: ${data.skipped}`, "success");
-            loadMembers();
-            loadAlerts();
-            loadLogs();
+            loadMembers(); loadAlerts(); loadLogs();
         })
         .catch(() => showResult("csvResult", "❌ Upload failed", "error"))
         .finally(() => { btn.textContent = "Upload"; btn.disabled = false; });
@@ -320,82 +289,75 @@ function uploadCSV() {
 
 
 // --------------------
-// EXPORT
+// EXPORT MEMBERS
 // --------------------
-function exportCSV() {
-    window.location.href = "/export/members/csv";
-}
+function exportCSV()   { window.location.href = "/export/members/csv"; }
 
 function exportExcel() {
-    fetch("/export/members/json")
-        .then(res => res.json())
-        .then(data => {
-            if (!data.length) { alert("No members to export"); return; }
-
-            const headers = Object.keys(data[0]);
-            const rows    = data.map(r =>
-                headers.map(h => `"${(r[h] || "").toString().replace(/"/g, '""')}"`).join(",")
-            );
-            const csvContent = [headers.join(","), ...rows].join("\n");
-
-            const blob = new Blob([csvContent], { type: "text/csv" });
-            const a    = document.createElement("a");
-            a.href     = URL.createObjectURL(blob);
-            a.download = "members_export.csv";
-            a.click();
-        })
-        .catch(() => alert("❌ Export failed"));
+    fetch("/export/members/json").then(r => r.json()).then(data => {
+        if (!data.length) { alert("No members to export"); return; }
+        const headers = Object.keys(data[0]);
+        const rows    = data.map(r => headers.map(h =>
+            `"${(r[h]||"").toString().replace(/"/g,'""')}"`).join(","));
+        const blob = new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob); a.download = "members_export.csv"; a.click();
+    }).catch(() => alert("❌ Export failed"));
 }
 
 function exportPDF() {
-    fetch("/export/members/json")
-        .then(res => res.json())
-        .then(data => {
-            if (!data.length) { alert("No members to export"); return; }
+    fetch("/export/members/json").then(r => r.json()).then(data => {
+        if (!data.length) { alert("No members to export"); return; }
+        const win  = window.open("", "_blank");
+        const rows = data.map(m => `<tr>
+            <td>${m.ID}</td><td>${m.Name}</td><td>${m.Phone}</td><td>${m.Email}</td>
+            <td>${m.Age||"—"}</td><td>${m.Gender||"—"}</td>
+            <td>${m["Join Date"]}</td><td>${m.Expiry}</td>
+        </tr>`).join("");
+        win.document.write(`<!DOCTYPE html><html><head><title>Members Report</title>
+            <style>body{font-family:Arial,sans-serif;padding:20px;font-size:12px}
+            table{width:100%;border-collapse:collapse}
+            th{background:#4f46e5;color:white;padding:8px 10px;text-align:left;font-size:11px}
+            td{padding:7px 10px;border-bottom:1px solid #eee}
+            tr:nth-child(even) td{background:#f9fafb}
+            @media print{button{display:none}}</style></head><body>
+            <h2>Members Report</h2>
+            <p style="color:#666;margin-bottom:16px;">
+                Generated: ${new Date().toLocaleString()} | Total: ${data.length}
+            </p>
+            <table><thead><tr>
+                <th>ID</th><th>Name</th><th>Phone</th><th>Email</th>
+                <th>Age</th><th>Gender</th><th>Join Date</th><th>Expiry</th>
+            </tr></thead><tbody>${rows}</tbody></table>
+            <script>window.onload=()=>window.print();<\/script></body></html>`);
+        win.document.close();
+    }).catch(() => alert("❌ Export failed"));
+}
 
-            const win  = window.open("", "_blank");
-            const rows = data.map(m => `
-                <tr>
-                    <td>${m.ID}</td>
-                    <td>${m.Name}</td>
-                    <td>${m.Phone}</td>
-                    <td>${m.Email}</td>
-                    <td>${m.Age || "—"}</td>
-                    <td>${m.Gender || "—"}</td>
-                    <td>${m["Join Date"]}</td>
-                    <td>${m.Expiry}</td>
-                </tr>
-            `).join("");
 
-            win.document.write(`
-                <!DOCTYPE html><html><head>
-                <title>Members Report</title>
-                <style>
-                    body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
-                    h2   { margin-bottom: 6px; }
-                    p    { color: #666; margin-bottom: 16px; }
-                    table { width: 100%; border-collapse: collapse; }
-                    th   { background: #4f46e5; color: white; padding: 8px 10px; text-align: left; font-size: 11px; }
-                    td   { padding: 7px 10px; border-bottom: 1px solid #eee; }
-                    tr:nth-child(even) td { background: #f9fafb; }
-                    @media print { button { display: none; } }
-                </style>
-                </head><body>
-                <h2>Members Report</h2>
-                <p>Generated: ${new Date().toLocaleString()} &nbsp;|&nbsp; Total: ${data.length}</p>
-                <table>
-                    <thead><tr>
-                        <th>ID</th><th>Name</th><th>Phone</th><th>Email</th>
-                        <th>Age</th><th>Gender</th><th>Join Date</th><th>Expiry</th>
-                    </tr></thead>
-                    <tbody>${rows}</tbody>
-                </table>
-                <script>window.onload = () => window.print();<\/script>
-                </body></html>
-            `);
-            win.document.close();
-        })
-        .catch(() => alert("❌ Export failed"));
+// --------------------
+// EXPORT LOGS PDF (gym owner)
+// --------------------
+function exportLogPDF() {
+    fetch("/export/logs/json").then(r => r.json()).then(logs => {
+        if (!logs.length) { alert("No logs to export"); return; }
+        const win  = window.open("", "_blank");
+        const rows = logs.map(l => `<tr><td>${l.Action}</td><td>${l.Time}</td></tr>`).join("");
+        win.document.write(`<!DOCTYPE html><html><head><title>Activity Log</title>
+            <style>body{font-family:Arial,sans-serif;padding:20px;font-size:12px}
+            table{width:100%;border-collapse:collapse}
+            th{background:#1e1b4b;color:white;padding:8px 10px;text-align:left;font-size:11px}
+            td{padding:7px 10px;border-bottom:1px solid #eee}
+            @media print{button{display:none}}</style></head><body>
+            <h2>Activity Log Report</h2>
+            <p style="color:#666;margin-bottom:16px;">
+                Generated: ${new Date().toLocaleString()} | Total: ${logs.length}
+            </p>
+            <table><thead><tr><th>Action</th><th>Time</th></tr></thead>
+            <tbody>${rows}</tbody></table>
+            <script>window.onload=()=>window.print();<\/script></body></html>`);
+        win.document.close();
+    }).catch(() => alert("❌ Export failed"));
 }
 
 
