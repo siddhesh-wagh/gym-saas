@@ -30,11 +30,15 @@ def run(conn, sql, label):
 with app.app_context():
 
     with db.engine.connect() as conn:
+         Delete old global plans (gym_id is NULL)
+        conn.execute(db.text("DELETE FROM plan WHERE gym_id IS NULL"))
+        # Reset sequence
         conn.execute(db.text(
-            "SELECT setval('plan_id_seq', (SELECT MAX(id) FROM plan))"
+            "SELECT setval('plan_id_seq', COALESCE((SELECT MAX(id) FROM plan), 1))"
         ))
         conn.commit()
-        print("✅ Plan sequence fixed")
+        print("✅ Old global plans removed, sequence reset")
+        
         print("\n── Gym table ──")
         run(conn,
             "ALTER TABLE gym ADD COLUMN phone VARCHAR(20)",

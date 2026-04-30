@@ -740,10 +740,7 @@ def admin_logs():
 def get_plans():
     gym_id = session["gym_id"]
     # Global plans (admin-created) + this gym's custom plans
-    plans = Plan.query.filter(
-        Plan.is_active == True,
-        (Plan.gym_id == None) | (Plan.gym_id == gym_id)
-    ).all()
+    plans = Plan.query.filter_by(gym_id=gym_id, is_active=True).all()
     return jsonify([{
         "id":            p.id,
         "name":          p.name,
@@ -759,16 +756,13 @@ def get_plans():
 @login_required
 def gym_plans():
     gym_id = session["gym_id"]
-    plans = Plan.query.filter(
-        Plan.is_active == True,
-        (Plan.gym_id == None) | (Plan.gym_id == gym_id)
-    ).all()
+    plans = Plan.query.filter_by(gym_id=gym_id, is_active=True).all() 
     return jsonify([{
         "id":            p.id,
         "name":          p.name,
         "duration_days": p.duration_days,
         "price":         p.price,
-        "is_custom":     p.gym_id == gym_id
+        "is_custom":     True
     } for p in plans])
 
 
