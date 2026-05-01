@@ -193,6 +193,11 @@ function confirmRenew() {
     const plan_id = parseInt(document.getElementById("renewPlanId").value);
     if (!plan_id) { alert("Select a plan"); return; }
 
+    // Disable button immediately to prevent double click
+    const btn = document.querySelector("#renewModal .btn:not(.btn-ghost)");
+    btn.disabled    = true;
+    btn.textContent = "Renewing…";
+
     fetch("/renew-member", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -200,12 +205,21 @@ function confirmRenew() {
     })
     .then(r => { if (!r.ok) throw new Error(); return r.json(); })
     .then(data => {
-        if (data.error) { alert("❌ " + data.error); return; }
-        closeRenewModal();
-        alert("✅ Renewed until " + data.new_expiry);
-        location.reload();
+        if (data.error) {
+            alert("❌ " + data.error);
+            btn.disabled    = false;
+            btn.textContent = "Confirm";
+        } else {
+            closeRenewModal();
+            alert("✅ Renewed until " + data.new_expiry);
+            location.reload();
+        }
     })
-    .catch(() => alert("❌ Server error"));
+    .catch(() => {
+        alert("❌ Server error");
+        btn.disabled    = false;
+        btn.textContent = "Confirm";
+    });
 }
 </script>
 </body>
