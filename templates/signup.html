@@ -10,49 +10,21 @@
 
 <div class="auth-card">
     <div class="auth-logo">🏋️ GymSaaS</div>
+    <p class="auth-subtitle">Create your gym account — 7 days free trial</p>
 
-    {% if step == "otp" %}
-    <!-- ===================== OTP STEP ===================== -->
-    <p class="auth-subtitle">Enter the 6-digit OTP sent to your mobile</p>
-
-    {% if error %}   <div class="error-msg">{{ error }}</div>   {% endif %}
-    {% if info %}    <div class="info-msg">{{ info }}</div>      {% endif %}
-    {% if dev_otp %} <div class="info-msg">🛠 Dev OTP: <strong>{{ dev_otp }}</strong></div> {% endif %}
-
-    <form method="POST" action="/signup">
-        <input type="hidden" name="step" value="verify_otp"/>
-        <div class="form-group">
-            <label>OTP</label>
-            <input type="text" name="otp" class="otp-input"
-                   placeholder="• • • • • •" maxlength="6"
-                   autocomplete="one-time-code" required autofocus/>
-        </div>
-        <button type="submit">Verify OTP</button>
-    </form>
-
-    <div class="auth-footer">
-        Wrong number? <a href="/signup">Start over</a>
-    </div>
-
-    {% else %}
-    <!-- ===================== REGISTER STEP ===================== -->
-    <p class="auth-subtitle">Create your gym account — 7 days free</p>
-
-    {% if error %}  <div class="error-msg">{{ error }}</div>   {% endif %}
+    {% if error %}  <div class="error-msg">{{ error }}</div>    {% endif %}
     {% if success %}<div class="success-msg">{{ success }}</div>{% endif %}
 
     <form method="POST" action="/signup">
-        <input type="hidden" name="step" value="register"/>
-
         <div class="form-group">
             <label>Gym Name</label>
-            <input type="text" name="name" placeholder="e.g. PowerFit Gym" required autofocus/>
+            <input type="text" name="name" placeholder="e.g. PowerFit Gym"
+                   required autofocus/>
         </div>
         <div class="form-group">
-            <label>Mobile Number *</label>
-            <input type="tel" name="phone" placeholder="10-digit mobile number" required
-                   pattern="[0-9]{10,13}"/>
-            <span style="font-size:11px;color:var(--text-3);">OTP will be sent to this number</span>
+            <label>Mobile Number</label>
+            <input type="tel" name="phone" placeholder="10-digit mobile number"
+                   pattern="[0-9]{10,13}" required/>
         </div>
         <div class="form-group">
             <label>Email</label>
@@ -60,16 +32,25 @@
         </div>
         <div class="form-group">
             <label>Password</label>
-            <input type="password" name="password" placeholder="Min. 8 characters" required minlength="8"/>
+            <input type="password" name="password"
+                   placeholder="Min. 8 characters" required minlength="8"/>
         </div>
 
-        <button type="submit">Send OTP →</button>
+        <button type="submit">Register →</button>
     </form>
+
+    <div class="auth-footer" style="margin-top:16px;">
+        <div style="background:var(--surface-2);border:1px solid var(--border);
+                    border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;
+                    color:var(--text-2);text-align:left;">
+            ℹ️ After registration, an admin will review and approve your account.
+            You'll be able to log in once approved.
+        </div>
+    </div>
 
     <div class="auth-footer">
         Already have an account? <a href="/login">Sign in</a>
     </div>
-    {% endif %}
 </div>
 
 </body>
