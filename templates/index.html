@@ -25,8 +25,6 @@
     </div>
 </div>
 
-<div id="app" data-gym-id="{{ session['gym_id'] }}"></div>
-
 <div class="container">
 
     {% if sub_status == "warning" %}
@@ -41,22 +39,22 @@
 
     <!-- STAT CARDS -->
     <div class="stats-grid">
-        <div class="stat-card accent-blue">
+        <div class="stat-card accent-blue" style="cursor:pointer;" onclick="applyFilter('all')">
             <div class="stat-icon">👥</div>
             <div class="stat-label">Total Members</div>
             <div class="stat-value" id="statTotal">—</div>
         </div>
-        <div class="stat-card accent-green">
+        <div class="stat-card accent-green" style="cursor:pointer;" onclick="applyFilter('active')">
             <div class="stat-icon">✅</div>
             <div class="stat-label">Active</div>
             <div class="stat-value" id="statActive">—</div>
         </div>
-        <div class="stat-card accent-amber">
+        <div class="stat-card accent-amber" style="cursor:pointer;" onclick="applyFilter('expiring')">
             <div class="stat-icon">⚠️</div>
             <div class="stat-label">Expiring Soon</div>
             <div class="stat-value" id="statExpiring">—</div>
         </div>
-        <div class="stat-card accent-red">
+        <div class="stat-card accent-red" style="cursor:pointer;" onclick="applyFilter('expired')">
             <div class="stat-icon">❌</div>
             <div class="stat-label">Expired</div>
             <div class="stat-value" id="statExpired">—</div>
@@ -84,10 +82,7 @@
 
     <!-- EXPIRY ALERTS -->
     <div class="card" id="alertsCard" style="display:none;">
-        <div class="section-header">
-            <div class="card-title">⚠️ Expiring in Next 3 Days</div>
-            <button class="btn btn-sm btn-warning" onclick="sendExpirySMS()">📱 Send SMS Reminders (5-day)</button>
-        </div>
+        <div class="card-title">⚠️ Expiring in Next 3 Days</div>
         <ul id="alertsList"></ul>
     </div>
 
@@ -168,14 +163,32 @@
     <!-- MEMBERS TABLE -->
     <div class="card">
         <div class="section-header">
-            <div class="card-title">👥 All Members</div>
+            <div class="card-title">
+                👥 Members
+                <span id="filterBadge" style="display:none;
+                    background:var(--primary-glow);color:var(--primary);
+                    font-size:11px;font-weight:600;padding:2px 8px;
+                    border-radius:10px;margin-left:6px;"></span>
+            </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                <input type="text" id="searchInput" placeholder="🔍 Search name / phone…"
-                       oninput="filterTable()" style="width:200px;"/>
-                <button class="btn btn-ghost btn-sm" onclick="loadMembers()">🔄 Refresh</button>
+                <!-- Search by name or phone -->
+                <input type="text" id="searchInput"
+                       placeholder="🔍 Search name / phone…"
+                       oninput="handleSearch()"
+                       style="width:200px;"/>
+                <!-- Filter buttons -->
+                <button class="btn btn-ghost btn-sm" id="filterAll"
+                        onclick="applyFilter('all')">All</button>
+                <button class="btn btn-ghost btn-sm" id="filterActive"
+                        onclick="applyFilter('active')">✅ Active</button>
+                <button class="btn btn-ghost btn-sm" id="filterExpiring"
+                        onclick="applyFilter('expiring')">⚠️ Expiring</button>
+                <button class="btn btn-ghost btn-sm" id="filterExpired"
+                        onclick="applyFilter('expired')">❌ Expired</button>
+                <button class="btn btn-ghost btn-sm" onclick="loadMembers()">🔄</button>
                 <button class="btn btn-sm btn-success" onclick="exportCSV()">⬇ CSV</button>
                 <button class="btn btn-sm btn-warning" onclick="exportExcel()">⬇ Excel</button>
-                <button class="btn btn-sm btn-danger" onclick="exportPDF()">⬇ PDF</button>
+                <button class="btn btn-sm btn-danger"  onclick="exportPDF()">⬇ PDF</button>
             </div>
         </div>
         <div class="table-wrap">
@@ -253,14 +266,5 @@
 </div>
 
 <script src="{{ url_for('static', filename='js/script.js') }}"></script>
-
-<script>
-// Send expiry SMS
-function sendExpirySMS() {
-    fetch("/send-expiry-sms", { method: "POST" })
-        .then(r => r.json())
-        .then(d => alert(d.message || d.error));
-}
-</script>
 </body>
 </html>

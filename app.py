@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from sqlalchemy import func
-import os, csv, io, random, requests
+import os, csv, io, random
 
 load_dotenv()
 app = Flask(__name__)
@@ -27,30 +27,9 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax"
 )
 
-ADMIN_EMAILS     = os.getenv("ADMIN_EMAILS", "").split(",")
-FAST2SMS_API_KEY = os.getenv("FAST2SMS_API_KEY", "")
+ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "").split(",")
 
 db = SQLAlchemy(app)
-
-
-# -----------------------
-# SMS Helper (Fast2SMS)
-# -----------------------
-def send_sms(phone, message):
-    if not FAST2SMS_API_KEY:
-        print(f"[SMS SKIPPED — no API key] To: {phone} | Msg: {message}")
-        return False
-    try:
-        resp = requests.post(
-            "https://www.fast2sms.com/dev/bulkV2",
-            headers={"authorization": FAST2SMS_API_KEY},
-            data={"route": "q", "message": message, "numbers": phone},
-            timeout=10
-        )
-        return resp.json().get("return", False)
-    except Exception as e:
-        print(f"SMS error: {e}")
-        return False
 
 
 # -----------------------
@@ -234,8 +213,7 @@ def home():
 
 
 # -----------------------
-# Signup — direct registration, no OTP
-# Admin approves before gym can log in
+# Signup
 # -----------------------
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
@@ -247,11 +225,8 @@ def signup():
 
         if not name or not email or not phone or not password:
             return render_template("signup.html", error="All fields are required")
-
         if len(password) < 8:
             return render_template("signup.html", error="Password must be at least 8 characters")
-
-        # Block if email already registered and not deleted
         if Gym.query.filter_by(email=email, is_deleted=False).first():
             return render_template("signup.html", error="Email already registered")
 
@@ -261,8 +236,7 @@ def signup():
         gym = Gym(
             name=name, email=email, phone=phone,
             password=hashed, role="gym",
-            is_active=False,
-            approval_status="pending",
+            is_active=False, approval_status="pending",
             subscription_expiry=trial_expiry
         )
         db.session.add(gym)
@@ -271,7 +245,7 @@ def signup():
         db.session.commit()
 
         return render_template("login.html",
-            success="Registration successful! Your account is pending admin approval. You'll be notified once approved.")
+            success="Registration successful! Your account is pending admin approval.")
 
     return render_template("signup.html")
 
@@ -301,11 +275,9 @@ def login():
                 return render_template("login.html",
                     error="Your registration was rejected. Contact support.")
             if not gym.is_active:
-                return render_template("login.html",
-                    error="Account disabled. Contact support.")
+                return render_template("login.html", error="Account disabled. Contact support.")
             if gym.subscription_expiry and gym.subscription_expiry < datetime.today().date():
-                return render_template("login.html",
-                    error="Subscription expired. Please renew.")
+                return render_template("login.html", error="Subscription expired. Please renew.")
 
         session["gym_id"]   = gym.id
         session["role"]     = gym.role
@@ -350,7 +322,7 @@ def dashboard():
     sub_expiry = gym.subscription_expiry
     sub_days, sub_status = None, "none"
     if sub_expiry:
-        diff = (sub_expiry - today).days
+        diff       = (sub_expiry - today).days
         sub_days   = diff
         sub_status = "expired" if diff < 0 else ("warning" if diff <= 3 else "ok")
 
@@ -400,7 +372,7 @@ def update_gym_profile():
 
 
 # -----------------------
-# Delete ALL Members (requires password)
+# Delete ALL Members
 # -----------------------
 @app.route("/delete-all-members", methods=["POST"])
 @login_required
@@ -485,7 +457,7 @@ def admin_dashboard():
 
 
 # -----------------------
-# Admin — Approve / Reject Gym
+# Admin — Approve / Reject
 # -----------------------
 @app.route("/admin/approve-gym/<int:gym_id>", methods=["POST"])
 @login_required
@@ -494,16 +466,10 @@ def approve_gym(gym_id):
     gym = db.session.get(Gym, gym_id)
     if not gym:
         return jsonify({"error": "Gym not found"}), 404
-
     gym.approval_status = "approved"
     gym.is_active = True
     log_action(f"Admin approved gym: {gym.email}", gym_id)
     db.session.commit()
-
-    if gym.phone:
-        send_sms(gym.phone,
-            f"Hi {gym.name}, your GymSaaS account has been approved! You can now log in.")
-
     return jsonify({"message": "Gym approved"})
 
 
@@ -514,24 +480,17 @@ def reject_gym(gym_id):
     gym = db.session.get(Gym, gym_id)
     if not gym:
         return jsonify({"error": "Gym not found"}), 404
-
     data   = request.get_json() or {}
     reason = data.get("reason", "")
-
     gym.approval_status = "rejected"
     gym.is_active = False
     log_action(f"Admin rejected gym: {gym.email} — {reason}", gym_id)
     db.session.commit()
-
-    if gym.phone:
-        send_sms(gym.phone,
-            f"Hi {gym.name}, your GymSaaS registration was not approved. Contact support.")
-
     return jsonify({"message": "Gym rejected"})
 
 
 # -----------------------
-# Admin — Stats API
+# Admin — Stats
 # -----------------------
 @app.route("/admin/stats")
 @login_required
@@ -540,10 +499,10 @@ def admin_stats():
     today   = datetime.today().date()
     gym_ids = active_gym_ids()
     return jsonify({
-        "total_gyms":    Gym.query.filter_by(role="gym", is_deleted=False, approval_status="approved").count(),
-        "pending_gyms":  Gym.query.filter_by(role="gym", is_deleted=False, approval_status="pending").count(),
-        "total_members": db.session.query(func.count(Member.id)).filter(Member.gym_id.in_(gym_ids)).scalar() if gym_ids else 0,
-        "active_members":db.session.query(func.count(Member.id)).filter(Member.gym_id.in_(gym_ids), Member.expiry_date >= today).scalar() if gym_ids else 0,
+        "total_gyms":     Gym.query.filter_by(role="gym", is_deleted=False, approval_status="approved").count(),
+        "pending_gyms":   Gym.query.filter_by(role="gym", is_deleted=False, approval_status="pending").count(),
+        "total_members":  db.session.query(func.count(Member.id)).filter(Member.gym_id.in_(gym_ids)).scalar() if gym_ids else 0,
+        "active_members": db.session.query(func.count(Member.id)).filter(Member.gym_id.in_(gym_ids), Member.expiry_date >= today).scalar() if gym_ids else 0,
     })
 
 
@@ -599,7 +558,7 @@ def delete_gym(gym_id):
 
 
 # -----------------------
-# Admin — Renew Gym Subscription
+# Admin — Renew Subscription
 # -----------------------
 @app.route("/admin/renew-gym/<int:gym_id>", methods=["POST"])
 @login_required
@@ -629,7 +588,7 @@ def renew_gym_subscription(gym_id):
 
 
 # -----------------------
-# Admin — View Members of a Gym
+# Admin — View Gym Members
 # -----------------------
 @app.route("/admin/gym/<int:gym_id>/members")
 @login_required
@@ -652,8 +611,7 @@ def admin_view_members(gym_id):
 @app.route("/my-logs")
 @login_required
 def my_logs():
-    gym_id = session["gym_id"]
-    logs = ActivityLog.query.filter_by(gym_id=gym_id)\
+    logs = ActivityLog.query.filter_by(gym_id=session["gym_id"])\
                .order_by(ActivityLog.created_at.desc()).limit(300).all()
     return jsonify([{
         "action":     l.action,
@@ -683,7 +641,7 @@ def admin_logs():
 
 
 # -----------------------
-# Plans — Get gym's own plans
+# Plans — Get gym's plans
 # -----------------------
 @app.route("/plans")
 @login_required
@@ -725,7 +683,6 @@ def gym_add_plan():
         price         = int(data.get("price", 0))
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid numbers"}), 400
-
     if not name:
         return jsonify({"error": "Plan name required"}), 400
 
@@ -743,17 +700,14 @@ def gym_update_plan(plan_id):
     plan = db.session.get(Plan, plan_id)
     if not plan or plan.gym_id != session["gym_id"]:
         return jsonify({"error": "Plan not found or not yours"}), 404
-
     data = request.get_json()
-    if data.get("name"):
-        plan.name = data["name"].strip()
+    if data.get("name"):       plan.name = data["name"].strip()
     if data.get("price") is not None:
         try: plan.price = int(data["price"])
         except (ValueError, TypeError): pass
     if data.get("duration_days") is not None:
         try: plan.duration_days = int(data["duration_days"])
         except (ValueError, TypeError): pass
-
     log_action(f"Updated plan '{plan.name}'")
     db.session.commit()
     return jsonify({"message": "Plan updated"})
@@ -765,7 +719,6 @@ def gym_delete_plan(plan_id):
     plan = db.session.get(Plan, plan_id)
     if not plan or plan.gym_id != session["gym_id"]:
         return jsonify({"error": "Plan not found or not yours"}), 404
-
     plan.is_active = False
     log_action(f"Deleted plan '{plan.name}'")
     db.session.commit()
@@ -804,10 +757,8 @@ def add_member():
 
         if not name or not phone:
             return jsonify({"error": "Name and phone are required"}), 400
-
         if Member.query.filter_by(phone=phone, gym_id=gym_id).first():
             return jsonify({"error": "Phone already registered"}), 400
-
         if email and Member.query.filter_by(email=email, gym_id=gym_id).first():
             return jsonify({"error": "Email already registered"}), 400
 
@@ -862,7 +813,7 @@ def add_member():
 
 
 # -----------------------
-# Renew Membership
+# Renew Membership — double-submit protected
 # -----------------------
 @app.route("/renew-member", methods=["POST"])
 @login_required
@@ -882,26 +833,31 @@ def renew_member():
     if not owns_member(member):
         return jsonify({"error": "Unauthorized"}), 403
 
-    start_date = datetime.today().date()
-    end_date   = (start_date + timedelta(days=plan.duration_days)
-                  if plan.duration_days > 0 else start_date)
+    today = datetime.today().date()
+
+    # Double-submit guard — same member + plan + today already exists → skip
+    existing = MembershipHistory.query.filter_by(
+        member_id=member.id,
+        plan_id=plan_id,
+        start_date=today
+    ).first()
+    if existing:
+        return jsonify({"message": "Membership renewed", "new_expiry": str(member.expiry_date)})
+
+    end_date = (today + timedelta(days=plan.duration_days)
+                if plan.duration_days > 0 else today)
 
     member.expiry_date = end_date
     member.plan_id     = plan_id
 
     db.session.add(MembershipHistory(
         member_id=member.id, plan_id=plan_id,
-        start_date=start_date, end_date=end_date,
+        start_date=today, end_date=end_date,
         amount_paid=plan.price
     ))
 
     log_action(f"Renewed membership: {member.name} — plan '{plan.name}' until {end_date}")
     db.session.commit()
-
-    if member.phone:
-        send_sms(member.phone,
-            f"Hi {member.name}, your membership at {session.get('gym_name','')} "
-            f"has been renewed until {end_date}.")
 
     return jsonify({"message": "Membership renewed", "new_expiry": str(end_date)})
 
@@ -946,12 +902,36 @@ def member_profile(unique_id):
 
 
 # -----------------------
-# Get Members
+# Get Members (supports ?filter=active|expired|expiring&search=phone/name)
 # -----------------------
 @app.route("/members")
 @login_required
 def get_members():
-    members = Member.query.filter(gym_member_filter()).all()
+    today      = datetime.today().date()
+    alert_date = today + timedelta(days=3)
+
+    q = Member.query.filter(gym_member_filter())
+
+    # Phone/name search
+    search = request.args.get("search", "").strip()
+    if search:
+        q = q.filter(
+            db.or_(
+                Member.name.ilike(f"%{search}%"),
+                Member.phone.ilike(f"%{search}%")
+            )
+        )
+
+    # Status filter
+    status = request.args.get("filter", "")
+    if status == "active":
+        q = q.filter(Member.expiry_date >= today)
+    elif status == "expired":
+        q = q.filter(Member.expiry_date < today)
+    elif status == "expiring":
+        q = q.filter(Member.expiry_date >= today, Member.expiry_date <= alert_date)
+
+    members = q.all()
     return jsonify([{
         "id":          m.id,
         "unique_id":   m.unique_id,
@@ -977,7 +957,6 @@ def delete_member(id):
         return jsonify({"error": "Member not found"}), 404
     if not owns_member(member):
         return jsonify({"error": "Unauthorized"}), 403
-
     log_action(f"Deleted member: {member.name} ({member.phone})")
     db.session.delete(member)
     db.session.commit()
@@ -1020,7 +999,7 @@ def update_member(id):
 
 
 # -----------------------
-# Expiry Alerts
+# Expiry Alerts (next 3 days)
 # -----------------------
 @app.route("/expiry-alerts")
 @login_required
@@ -1040,36 +1019,6 @@ def expiry_alerts():
         "phone":       m.phone,
         "expiry_date": str(m.expiry_date)
     } for m in members])
-
-
-# -----------------------
-# Send Expiry SMS
-# -----------------------
-@app.route("/send-expiry-sms", methods=["POST"])
-@login_required
-def send_expiry_sms():
-    gym_id     = session["gym_id"]
-    gym        = db.session.get(Gym, gym_id)
-    today      = datetime.today().date()
-    alert_date = today + timedelta(days=5)
-
-    members = Member.query.filter(
-        Member.gym_id == gym_id,
-        Member.expiry_date == alert_date
-    ).all()
-
-    sent = 0
-    for m in members:
-        if m.phone:
-            ok = send_sms(m.phone,
-                f"Hi {m.name}, your membership at {gym.name} expires on {m.expiry_date}. "
-                f"Please renew to continue.")
-            if ok:
-                sent += 1
-
-    log_action(f"Sent expiry SMS to {sent} members (expiring on {alert_date})")
-    db.session.commit()
-    return jsonify({"message": f"SMS sent to {sent} members expiring on {alert_date}"})
 
 
 # -----------------------
@@ -1105,7 +1054,6 @@ def upload_csv():
         if not phone:
             skipped += 1
             continue
-
         if Member.query.filter_by(phone=phone, gym_id=gym_id).first() or \
            (email and Member.query.filter_by(email=email, gym_id=gym_id).first()):
             skipped += 1
@@ -1143,8 +1091,8 @@ def upload_csv():
 @app.route("/export/members/csv")
 @login_required
 def export_members_csv():
-    gym_id  = None if is_admin() else session["gym_id"]
-    q       = Member.query
+    gym_id = None if is_admin() else session["gym_id"]
+    q      = Member.query
     if gym_id:
         q = q.filter_by(gym_id=gym_id)
     members   = q.all()
@@ -1173,8 +1121,8 @@ def export_members_csv():
 @app.route("/export/members/json")
 @login_required
 def export_members_json():
-    gym_id  = None if is_admin() else session["gym_id"]
-    q       = Member.query
+    gym_id = None if is_admin() else session["gym_id"]
+    q      = Member.query
     if gym_id:
         q = q.filter_by(gym_id=gym_id)
     members   = q.all()

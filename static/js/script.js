@@ -1,4 +1,11 @@
 // --------------------
+// STATE
+// --------------------
+let currentFilter = "all";
+let searchTimer   = null;
+
+
+// --------------------
 // HELPERS
 // --------------------
 function showResult(elId, msg, type) {
@@ -33,7 +40,7 @@ function loadPlans() {
                 el.innerHTML = "";
 
                 if (!plans.length) {
-                    el.innerHTML = `<option value="">No plans available — add in Profile</option>`;
+                    el.innerHTML = `<option value="">No plans — add in Profile</option>`;
                     return;
                 }
 
@@ -53,24 +60,87 @@ function loadPlans() {
 
 
 // --------------------
-// LOAD MEMBERS + STATS
+// LOAD MEMBERS — server-side search + filter
 // --------------------
-function loadMembers() {
-    fetch("/members")
+function loadMembers(filter, search) {
+    filter = filter ?? currentFilter ?? "all";
+    search = search ?? (document.getElementById("searchInput")?.value || "");
+
+    const params = new URLSearchParams();
+    if (filter && filter !== "all") params.set("filter", filter);
+    if (search.trim()) params.set("search", search.trim());
+
+    const url = "/members" + (params.toString() ? "?" + params.toString() : "");
+
+    fetch(url)
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-        .then(data => { renderTable(data); updateStats(data); })
+        .then(data => {
+            renderTable(data);
+            // Only update stat counts when loading ALL (no filter active)
+            if (filter === "all" && !search.trim()) updateStats(data);
+        })
         .catch(err => console.error("loadMembers:", err));
 }
 
+// Alias for refresh button (no args = reload with current state)
+function reloadMembers() {
+    loadMembers(currentFilter, document.getElementById("searchInput")?.value || "");
+}
+
+
+// --------------------
+// FILTER BUTTONS
+// --------------------
+function applyFilter(filter) {
+    currentFilter = filter;
+
+    // Highlight active button
+    ["all","active","expiring","expired"].forEach(f => {
+        const btn = document.getElementById("filter" + f.charAt(0).toUpperCase() + f.slice(1));
+        if (!btn) return;
+        btn.className = f === filter
+            ? "btn btn-sm" + (f === "all" ? "" : f === "active" ? " btn-success" : f === "expiring" ? " btn-warning" : " btn-danger")
+            : "btn btn-ghost btn-sm";
+    });
+
+    // Update badge
+    const badge = document.getElementById("filterBadge");
+    if (badge) {
+        if (filter === "all") {
+            badge.style.display = "none";
+        } else {
+            badge.style.display = "inline";
+            badge.textContent = filter.charAt(0).toUpperCase() + filter.slice(1);
+        }
+    }
+
+    loadMembers(filter, document.getElementById("searchInput")?.value || "");
+}
+
+
+// --------------------
+// SEARCH (debounced, server-side)
+// --------------------
+function handleSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        loadMembers(currentFilter, document.getElementById("searchInput").value);
+    }, 300);
+}
+
+
+// --------------------
+// RENDER TABLE
+// --------------------
 function renderTable(data) {
     const tbody = document.querySelector("#membersTable tbody");
     if (!data.length) {
-        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--text-3);padding:30px;">No members yet</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--text-3);padding:30px;">No members found</td></tr>`;
         return;
     }
 
     tbody.innerHTML = data.map(m => `
-        <tr data-search="${(m.name + " " + m.phone).toLowerCase()}">
+        <tr>
             <td style="color:var(--text-3);font-size:12px;">${m.unique_id || ""}</td>
             <td>
                 <a href="/member/${m.unique_id}" target="_blank" style="font-weight:600;">
@@ -99,6 +169,10 @@ function renderTable(data) {
     `).join("");
 }
 
+
+// --------------------
+// STAT COUNTS (full load only)
+// --------------------
 function updateStats(data) {
     const today    = new Date(); today.setHours(0,0,0,0);
     const active   = data.filter(m => new Date(m.expiry_date) >= today).length;
@@ -113,18 +187,6 @@ function updateStats(data) {
     set("statActive",   active);
     set("statExpiring", expiring);
     set("statExpired",  expired);
-}
-
-
-// --------------------
-// SEARCH / FILTER
-// --------------------
-function filterTable() {
-    const q = document.getElementById("searchInput").value.toLowerCase();
-    document.querySelectorAll("#membersTable tbody tr").forEach(row => {
-        const s = row.dataset.search || row.innerText.toLowerCase();
-        row.style.display = s.includes(q) ? "" : "none";
-    });
 }
 
 
@@ -145,7 +207,7 @@ document.getElementById("memberForm").addEventListener("submit", function(e) {
                 showResult("result", `✅ Added! ID: ${data.member_id} | Expiry: ${data.expiry_date}`, "success");
                 this.reset();
                 loadPlans();
-                loadMembers();
+                loadMembers("all", "");
                 loadAlerts();
                 loadLogs();
             }
@@ -162,7 +224,7 @@ function deleteMember(id) {
     if (!confirm("Delete this member?")) return;
     fetch(`/delete-member/${id}`, { method: "DELETE" })
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-        .then(() => { loadMembers(); loadAlerts(); loadLogs(); })
+        .then(() => { loadMembers(currentFilter); loadAlerts(); loadLogs(); })
         .catch(() => alert("❌ Delete failed"));
 }
 
@@ -213,7 +275,7 @@ function saveEdit() {
 
     fetch(`/update-member/${id}`, { method: "POST", body: fd })
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-        .then(() => { closeEdit(); loadMembers(); loadLogs(); })
+        .then(() => { closeEdit(); loadMembers(currentFilter); loadLogs(); })
         .catch(() => alert("❌ Update failed"));
 }
 
@@ -239,7 +301,7 @@ function loadAlerts() {
 
 
 // --------------------
-// ACTIVITY LOG (table for gym owner)
+// ACTIVITY LOG
 // --------------------
 function loadLogs() {
     const body = document.getElementById("logBody");
@@ -281,7 +343,9 @@ function uploadCSV() {
         .then(res => { if (!res.ok) throw new Error(); return res.json(); })
         .then(data => {
             showResult("csvResult", `✅ Inserted: ${data.inserted} | Skipped: ${data.skipped}`, "success");
-            loadMembers(); loadAlerts(); loadLogs();
+            loadMembers("all", "");
+            loadAlerts();
+            loadLogs();
         })
         .catch(() => showResult("csvResult", "❌ Upload failed", "error"))
         .finally(() => { btn.textContent = "Upload"; btn.disabled = false; });
@@ -336,7 +400,7 @@ function exportPDF() {
 
 
 // --------------------
-// EXPORT LOGS PDF (gym owner)
+// EXPORT LOGS PDF
 // --------------------
 function exportLogPDF() {
     fetch("/export/logs/json").then(r => r.json()).then(logs => {
@@ -366,7 +430,7 @@ function exportLogPDF() {
 // --------------------
 window.onload = function() {
     loadPlans();
-    loadMembers();
+    loadMembers("all", "");
     loadAlerts();
     loadLogs();
 };
