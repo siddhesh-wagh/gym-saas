@@ -229,6 +229,8 @@ def signup():
             return render_template("signup.html", error="Password must be at least 8 characters")
         if Gym.query.filter_by(email=email, is_deleted=False).first():
             return render_template("signup.html", error="Email already registered")
+        if Gym.query.filter_by(phone=phone, is_deleted=False).first():
+            return render_template("signup.html", error="Phone number already registered")
 
         hashed       = generate_password_hash(password, method='pbkdf2:sha256', salt_length=16)
         trial_expiry = datetime.today().date() + timedelta(days=7)
