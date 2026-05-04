@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from sqlalchemy import func
-import os, csv, io, random
+import os, csv, io, random, re
 
 load_dotenv()
 app = Flask(__name__)
@@ -30,6 +30,31 @@ app.config.update(
 ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "").split(",")
 
 db = SQLAlchemy(app)
+
+
+# -----------------------
+# Normalizers
+# -----------------------
+def normalize_phone(phone):
+    """
+    Strip spaces, dashes, brackets, +91 / 91 country code prefix.
+    +91 9321799901  →  9321799901
+    91 9321799901   →  9321799901
+    932-179-9901    →  9321799901
+    """
+    if not phone:
+        return phone
+    phone = re.sub(r'[\s\-\(\)]', '', phone)   # remove spaces, dashes, brackets
+    phone = re.sub(r'^\+91', '', phone)         # strip +91
+    phone = re.sub(r'^91(\d{10})$', r'\1', phone)  # strip 91 if total 12 digits
+    return phone.strip()
+
+
+def normalize_email(email):
+    """Lowercase + strip whitespace."""
+    if not email:
+        return email
+    return email.strip().lower()
 
 
 # -----------------------
@@ -219,8 +244,8 @@ def home():
 def signup():
     if request.method == "POST":
         name     = request.form.get("name", "").strip()
-        email    = request.form.get("email", "").strip().lower()
-        phone    = request.form.get("phone", "").strip()
+        email    = normalize_email(request.form.get("email", ""))
+        phone    = normalize_phone(request.form.get("phone", "").strip())
         password = request.form.get("password", "").strip()
 
         if not name or not email or not phone or not password:
@@ -258,7 +283,7 @@ def signup():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email    = request.form.get("email", "").strip().lower()
+        email    = normalize_email(request.form.get("email", ""))
         password = request.form.get("password", "").strip()
 
         gym = Gym.query.filter_by(email=email, is_deleted=False).first()
@@ -703,7 +728,8 @@ def gym_update_plan(plan_id):
     if not plan or plan.gym_id != session["gym_id"]:
         return jsonify({"error": "Plan not found or not yours"}), 404
     data = request.get_json()
-    if data.get("name"):       plan.name = data["name"].strip()
+    if data.get("name"):
+        plan.name = data["name"].strip()
     if data.get("price") is not None:
         try: plan.price = int(data["price"])
         except (ValueError, TypeError): pass
@@ -744,8 +770,8 @@ def my_revenue():
 def add_member():
     try:
         name    = request.form.get("name", "").strip()
-        phone   = request.form.get("phone", "").strip()
-        email   = request.form.get("email", "").strip().lower() or None
+        phone   = normalize_phone(request.form.get("phone", "").strip())
+        email   = normalize_email(request.form.get("email", "")) or None
         age     = request.form.get("age", "").strip()
         gender  = request.form.get("gender", "").strip()
         address = request.form.get("address", "").strip()
@@ -760,9 +786,9 @@ def add_member():
         if not name or not phone:
             return jsonify({"error": "Name and phone are required"}), 400
         if Member.query.filter_by(phone=phone, gym_id=gym_id).first():
-            return jsonify({"error": "Phone already registered"}), 400
+            return jsonify({"error": "Phone already registered in this gym"}), 400
         if email and Member.query.filter_by(email=email, gym_id=gym_id).first():
-            return jsonify({"error": "Email already registered"}), 400
+            return jsonify({"error": "Email already registered in this gym"}), 400
 
         plan = db.session.get(Plan, plan_id)
         if not plan:
@@ -837,7 +863,7 @@ def renew_member():
 
     today = datetime.today().date()
 
-    # Double-submit guard — same member + plan + today already exists → skip
+    # Double-submit guard
     existing = MembershipHistory.query.filter_by(
         member_id=member.id,
         plan_id=plan_id,
@@ -904,7 +930,7 @@ def member_profile(unique_id):
 
 
 # -----------------------
-# Get Members (supports ?filter=active|expired|expiring&search=phone/name)
+# Get Members
 # -----------------------
 @app.route("/members")
 @login_required
@@ -914,17 +940,18 @@ def get_members():
 
     q = Member.query.filter(gym_member_filter())
 
-    # Phone/name search
     search = request.args.get("search", "").strip()
     if search:
+        # Normalize search term the same way phones are stored
+        normalized_search = normalize_phone(search)
         q = q.filter(
             db.or_(
                 Member.name.ilike(f"%{search}%"),
-                Member.phone.ilike(f"%{search}%")
+                Member.phone.ilike(f"%{search}%"),
+                Member.phone.ilike(f"%{normalized_search}%")
             )
         )
 
-    # Status filter
     status = request.args.get("filter", "")
     if status == "active":
         q = q.filter(Member.expiry_date >= today)
@@ -978,10 +1005,17 @@ def update_member(id):
         return jsonify({"error": "Unauthorized"}), 403
 
     member.name    = request.form.get("name",    member.name)
-    member.phone   = request.form.get("phone",   member.phone)
-    member.email   = request.form.get("email",   member.email) or None
     member.gender  = request.form.get("gender",  member.gender)
     member.address = request.form.get("address", member.address)
+
+    # Normalize phone on update
+    raw_phone = request.form.get("phone", "")
+    if raw_phone:
+        member.phone = normalize_phone(raw_phone)
+
+    # Normalize email on update
+    raw_email = request.form.get("email", "")
+    member.email = normalize_email(raw_email) if raw_email else None
 
     age = request.form.get("age", "")
     if age not in ("", None, "null"):
@@ -1001,7 +1035,7 @@ def update_member(id):
 
 
 # -----------------------
-# Expiry Alerts (next 3 days)
+# Expiry Alerts
 # -----------------------
 @app.route("/expiry-alerts")
 @login_required
@@ -1050,8 +1084,8 @@ def upload_csv():
     inserted, skipped = 0, 0
 
     for row in reader:
-        phone = (row.get("phone") or "").strip()
-        email = (row.get("email") or "").strip().lower() or None
+        phone = normalize_phone((row.get("phone") or "").strip())
+        email = normalize_email((row.get("email") or "").strip()) or None
 
         if not phone:
             skipped += 1
