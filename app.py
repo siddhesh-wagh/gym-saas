@@ -37,23 +37,50 @@ db = SQLAlchemy(app)
 # -----------------------
 def normalize_phone(phone):
     """
-    Strip spaces, dashes, brackets, +91 / 91 country code prefix.
-    +91 9321799901  →  9321799901
-    91 9321799901   →  9321799901
-    932-179-9901    →  9321799901
+    Normalize any Indian mobile number to +91XXXXXXXXXX format.
+
+    Rules (in order):
+      1. Strip all spaces, dashes, brackets, dots
+      2. Remove leading + if present
+      3. Remove leading 0 if present
+      4. Remove leading 91 country code if result is 12 digits
+      5. After cleanup must be exactly 10 digits — reject otherwise
+      6. Store as +91XXXXXXXXXX
+
+    Examples:
+      09321799901   → +919321799901
+      9321799901    → +919321799901
+      +919321799901 → +919321799901
+      +9321799901   → +919321799901  (treated as missing 91)
+      919321799901  → +919321799901
+      1234          → None (invalid — rejected)
     """
     if not phone:
-        return phone
-    phone = re.sub(r'[\s\-\(\)]', '', phone)   # remove spaces, dashes, brackets
-    phone = re.sub(r'^\+91', '', phone)         # strip +91
-    phone = re.sub(r'^91(\d{10})$', r'\1', phone)  # strip 91 if total 12 digits
-    return phone.strip()
+        return None
+
+    # Step 1: remove all non-digit characters (spaces, dashes, brackets, dots, +)
+    digits = re.sub(r'\D', '', phone)
+
+    # Step 2: strip leading 0
+    if digits.startswith('0'):
+        digits = digits[1:]
+
+    # Step 3: strip 91 country code if number is 12 digits
+    if len(digits) == 12 and digits.startswith('91'):
+        digits = digits[2:]
+
+    # Step 4: after cleanup must be exactly 10 digits
+    if len(digits) != 10:
+        return None  # invalid — caller should reject
+
+    # Step 5: store in standard format
+    return f"+91{digits}"
 
 
 def normalize_email(email):
     """Lowercase + strip whitespace."""
     if not email:
-        return email
+        return None
     return email.strip().lower()
 
 
@@ -248,8 +275,11 @@ def signup():
         phone    = normalize_phone(request.form.get("phone", "").strip())
         password = request.form.get("password", "").strip()
 
-        if not name or not email or not phone or not password:
+        if not name or not email or not password:
             return render_template("signup.html", error="All fields are required")
+        if not phone:
+            return render_template("signup.html",
+                error="Invalid phone number. Enter a 10-digit Indian mobile number.")
         if len(password) < 8:
             return render_template("signup.html", error="Password must be at least 8 characters")
         if Gym.query.filter_by(email=email, is_deleted=False).first():
@@ -783,8 +813,11 @@ def add_member():
         except (TypeError, ValueError):
             return jsonify({"error": "Invalid plan"}), 400
 
-        if not name or not phone:
-            return jsonify({"error": "Name and phone are required"}), 400
+        if not name:
+            return jsonify({"error": "Name is required"}), 400
+        if not phone:
+            return jsonify({"error": "Invalid phone number. Enter a valid 10-digit mobile number."}), 400
+
         if Member.query.filter_by(phone=phone, gym_id=gym_id).first():
             return jsonify({"error": "Phone already registered in this gym"}), 400
         if email and Member.query.filter_by(email=email, gym_id=gym_id).first():
@@ -796,7 +829,7 @@ def add_member():
 
         photo_path = None
         if file and file.filename != "":
-            filename = f"{phone}.jpg"
+            filename = f"{phone.replace('+', '')}.jpg"
             filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
             file.save(filepath)
             photo_path = "/" + filepath.replace("\\", "/")
@@ -942,8 +975,7 @@ def get_members():
 
     search = request.args.get("search", "").strip()
     if search:
-        # Normalize search term the same way phones are stored
-        normalized_search = normalize_phone(search)
+        normalized_search = normalize_phone(search) or search
         q = q.filter(
             db.or_(
                 Member.name.ilike(f"%{search}%"),
@@ -1008,13 +1040,14 @@ def update_member(id):
     member.gender  = request.form.get("gender",  member.gender)
     member.address = request.form.get("address", member.address)
 
-    # Normalize phone on update
-    raw_phone = request.form.get("phone", "")
+    raw_phone = request.form.get("phone", "").strip()
     if raw_phone:
-        member.phone = normalize_phone(raw_phone)
+        normalized = normalize_phone(raw_phone)
+        if not normalized:
+            return jsonify({"error": "Invalid phone number. Enter a valid 10-digit mobile number."}), 400
+        member.phone = normalized
 
-    # Normalize email on update
-    raw_email = request.form.get("email", "")
+    raw_email = request.form.get("email", "").strip()
     member.email = normalize_email(raw_email) if raw_email else None
 
     age = request.form.get("age", "")
@@ -1024,7 +1057,7 @@ def update_member(id):
 
     file = request.files.get("photo")
     if file and file.filename != "":
-        filename = f"{member.phone}.jpg"
+        filename = f"{member.phone.replace('+', '')}.jpg"
         filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
         file.save(filepath)
         member.photo = "/" + filepath.replace("\\", "/")
@@ -1087,7 +1120,7 @@ def upload_csv():
         phone = normalize_phone((row.get("phone") or "").strip())
         email = normalize_email((row.get("email") or "").strip()) or None
 
-        if not phone:
+        if not phone:          # invalid or empty phone — skip row
             skipped += 1
             continue
         if Member.query.filter_by(phone=phone, gym_id=gym_id).first() or \
